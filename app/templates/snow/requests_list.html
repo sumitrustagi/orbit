@@ -1,0 +1,243 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}SNOW Requests{% endblock %}
+{% block page_title %}ServiceNow Requests{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">DID Management / SNOW Requests</div>
+{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('snow.snow_config') }}"
+   class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-gear me-1"></i>SNOW Config
+</a>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  .status-badge { font-size:0.7rem; font-weight:700;
+                  border-radius:4px; padding:0.2rem 0.55rem; }
+  .sb-pending    { background:#fff7ed; color:#9a3412; }
+  .sb-processing { background:#dbeafe; color:#1e40af; }
+  .sb-fulfilled  { background:#dcfce7; color:#166534; }
+  .sb-failed     { background:#fee2e2; color:#991b1b; }
+  .mono { font-family:'Courier New',monospace; }
+</style>
+{% endblock %}
+
+
+{% block content %}
+
+<!-- ── Stat bar ── -->
+<div class="row g-3 mb-4">
+  {% for label, key, color, icon in [
+    ("Total (30d)",  "total",      "secondary", "bi-inbox"),
+    ("Pending",      "pending",    "warning",   "bi-hourglass-split"),
+    ("Processing",   "processing", "info",      "bi-arrow-repeat"),
+    ("Fulfilled",    "fulfilled",  "success",   "bi-check-circle"),
+    ("Failed",       "failed",     "danger",    "bi-x-circle"),
+  ] %}
+  <div class="col">
+    <div class="stat-widget">
+      <div class="stat-icon bg-{{ color }}-subtle text-{{ color }}">
+        <i class="bi {{ icon }}"></i>
+      </div>
+      <div>
+        <div class="stat-value">{{ stats[key] }}</div>
+        <div class="stat-label">{{ label }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ── Filter bar ── -->
+<div class="orbit-card mb-3 p-3">
+  <form method="GET" class="row g-2 align-items-end">
+    <div class="col-md-4">
+      <input type="text" name="search" value="{{ search }}"
+             class="form-control form-control-sm"
+             placeholder="RITM number, email, DID…"/>
+    </div>
+    <div class="col-md-3">
+      <select name="status" class="form-select form-select-sm">
+        <option value="">All Statuses</option>
+        {% for st in ['pending','processing','fulfilled','failed'] %}
+        <option value="{{ st }}" {{ 'selected' if status_filter == st }}>
+          {{ st | title }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <select name="per_page" class="form-select form-select-sm">
+        {% for n in [25, 50, 100] %}
+        <option value="{{ n }}" {{ 'selected' if per_page == n }}>{{ n }} / page</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3 d-flex gap-2">
+      <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+        <i class="bi bi-funnel-fill me-1"></i>Filter
+      </button>
+      {% if search or status_filter %}
+      <a href="{{ url_for('snow.requests_list') }}"
+         class="btn btn-outline-secondary btn-sm">Clear</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<!-- ── Table ── -->
+<div class="orbit-card">
+  <div class="orbit-card-header">
+    <i class="bi bi-ticket text-primary"></i>
+    <span class="fw-semibold">SNOW Requests</span>
+    <span class="ms-auto text-muted" style="font-size:0.78rem;">
+      {{ pagination.total }} total
+    </span>
+  </div>
+
+  {% if requests %}
+  <div class="table-responsive">
+    <table class="table orbit-table mb-0">
+      <thead>
+        <tr>
+          <th>SNOW Number</th>
+          <th>Requester</th>
+          <th>Status</th>
+          <th>Assigned DID</th>
+          <th>Received</th>
+          <th>Fulfilled</th>
+          <th style="width:40px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in requests %}
+        <tr>
+          <td>
+            <a href="{{ url_for('snow.request_detail', req_id=r.id) }}"
+               class="fw-bold mono text-decoration-none text-primary">
+              {{ r.snow_number }}
+            </a>
+            {% if r.retry_count and r.retry_count > 0 %}
+            <span class="badge bg-warning-subtle text-warning ms-1"
+                  style="font-size:0.65rem;" title="{{ r.retry_count }} retry attempt(s)">
+              ×{{ r.retry_count }}
+            </span>
+            {% endif %}
+          </td>
+
+          <td>
+            <div style="font-weight:600;font-size:0.85rem;">
+              {{ r.requester_name or r.requester_email }}
+            </div>
+            {% if r.requester_name %}
+            <div class="text-muted" style="font-size:0.72rem;">{{ r.requester_email }}</div>
+            {% endif %}
+          </td>
+
+          <td>
+            {% set sb_map = {
+              'pending':    'sb-pending',
+              'processing': 'sb-processing',
+              'fulfilled':  'sb-fulfilled',
+              'failed':     'sb-failed',
+            } %}
+            <span class="status-badge {{ sb_map.get(r.status.value, '') }}">
+              {% if r.status.value == 'processing' %}
+              <span class="spinner-border spinner-border-sm me-1"
+                    style="width:8px;height:8px;border-width:1px;"></span>
+              {% endif %}
+              {{ r.status.value | title }}
+            </span>
+          </td>
+
+          <td class="mono">
+            {{ r.assigned_did or '—' }}
+            {% if r.assigned_extension %}
+            <span class="text-muted" style="font-size:0.72rem;">
+              ext {{ r.assigned_extension }}
+            </span>
+            {% endif %}
+          </td>
+
+          <td class="text-muted" style="font-size:0.78rem;white-space:nowrap;">
+            {{ r.received_at.strftime('%d %b %Y %H:%M') if r.received_at else '—' }}
+          </td>
+
+          <td class="text-muted" style="font-size:0.78rem;white-space:nowrap;">
+            {% if r.fulfilled_at %}
+              {{ r.fulfilled_at.strftime('%d %b %Y %H:%M') }}
+            {% elif r.status.value == 'failed' %}
+              <span class="text-danger">Failed</span>
+            {% else %}
+              —
+            {% endif %}
+          </td>
+
+          <td>
+            <a href="{{ url_for('snow.request_detail', req_id=r.id) }}"
+               class="btn btn-sm btn-light py-0 px-1">
+              <i class="bi bi-chevron-right" style="font-size:0.7rem;"></i>
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if pagination.pages > 1 %}
+  <div class="d-flex justify-content-between align-items-center p-3 border-top"
+       style="font-size:0.82rem;">
+    <span class="text-muted">
+      {{ ((page-1)*per_page)+1 }}–{{ [page*per_page, pagination.total]|min }}
+      of {{ pagination.total }}
+    </span>
+    <nav>
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {{ 'disabled' if not pagination.has_prev }}">
+          <a class="page-link"
+             href="{{ url_for('snow.requests_list', page=page-1,
+                              status=status_filter, search=search, per_page=per_page) }}">‹</a>
+        </li>
+        {% for p in pagination.iter_pages(left_edge=1, right_edge=1,
+                                           left_current=2, right_current=2) %}
+          {% if p %}
+          <li class="page-item {{ 'active' if p == page }}">
+            <a class="page-link"
+               href="{{ url_for('snow.requests_list', page=p,
+                                status=status_filter, search=search, per_page=per_page) }}">
+              {{ p }}
+            </a>
+          </li>
+          {% else %}
+          <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {{ 'disabled' if not pagination.has_next }}">
+          <a class="page-link"
+             href="{{ url_for('snow.requests_list', page=page+1,
+                              status=status_filter, search=search, per_page=per_page) }}">›</a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="text-center py-5">
+    <i class="bi bi-ticket fs-1 text-muted opacity-25"></i>
+    <p class="text-muted mt-3">No SNOW requests match the current filter.</p>
+    {% if search or status_filter %}
+    <a href="{{ url_for('snow.requests_list') }}"
+       class="btn btn-sm btn-outline-secondary">Clear Filter</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
