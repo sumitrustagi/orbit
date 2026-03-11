@@ -1,0 +1,233 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}{{ 'Edit' if pool else 'New' }} DID Pool{% endblock %}
+{% block page_title %}{{ 'Edit' if pool else 'New' }} DID Pool{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">
+  <a href="{{ url_for('did.pools_list') }}" class="text-muted text-decoration-none">
+    DID Pools
+  </a>
+  / {{ 'Edit: ' + pool.name if pool else 'New Pool' }}
+</div>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  .form-card { max-width: 720px; }
+  .range-preview {
+    background: #f8fafc; border: 1px solid #e2e8f0;
+    border-radius: 8px; padding: 0.875rem 1rem;
+    font-family: 'Courier New', monospace; font-size: 0.82rem;
+    color: #334155; display: none;
+  }
+  .range-preview.visible { display: block; }
+  .range-preview .count { font-weight: 800; color: #1e40af; font-size: 1rem; }
+</style>
+{% endblock %}
+
+
+{% block content %}
+<div class="form-card">
+  <div class="orbit-card">
+    <div class="orbit-card-header">
+      <i class="bi bi-{{ 'pencil' if pool else 'plus-circle' }} text-primary"></i>
+      <span class="fw-semibold">
+        {{ 'Edit Pool: ' + pool.name if pool else 'Create New DID Pool' }}
+      </span>
+    </div>
+    <div class="orbit-card-body">
+
+      <form method="POST" novalidate x-data="poolForm()">
+        {{ form.hidden_tag() }}
+
+        <!-- Pool name & description -->
+        <div class="row g-3 mb-3">
+          <div class="col-md-8">
+            {{ form.name.label(class="form-label fw-semibold") }}
+            {{ form.name(class="form-control" + (" is-invalid" if form.name.errors else "")) }}
+            {% for e in form.name.errors %}
+              <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="col-md-4 d-flex align-items-end">
+            <div class="form-check form-switch mb-2">
+              {{ form.is_active(class="form-check-input", role="switch") }}
+              <label class="form-check-label fw-semibold"
+                     for="{{ form.is_active.id }}">
+                Pool Active
+              </label>
+            </div>
+          </div>
+          <div class="col-12">
+            {{ form.description.label(class="form-label fw-semibold") }}
+            {{ form.description(class="form-control",
+                                **{"rows": "2"}) }}
+          </div>
+        </div>
+
+        <hr/>
+
+        <!-- Webex Location -->
+        <div class="mb-3">
+          {{ form.location_id.label(class="form-label fw-semibold") }}
+          <div class="input-group">
+            {{ form.location_id(class="form-select" + (" is-invalid" if form.location_id.errors else ""),
+                                 **{"x-model":"locationId"}) }}
+            <button type="button" class="btn btn-outline-secondary"
+                    @click="refreshLocations()"
+                    title="Refresh from Webex">
+              <i class="bi bi-arrow-repeat" :class="{'spin': refreshing}"></i>
+            </button>
+          </div>
+          <div class="form-text">
+            Locations are loaded from your Webex organisation. If the list is empty,
+            check that your Webex access token is valid.
+          </div>
+          {% for e in form.location_id.errors %}
+            <div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+        </div>
+
+        {% if not pool %}
+        <!-- Range inputs — read-only once pool is created -->
+        <hr/>
+        <p class="fw-semibold mb-1">Number Range</p>
+        <p class="text-muted small mb-3">
+          Define the start and end of your DID block in E.164 format.
+          The range cannot be changed after the pool is created.
+        </p>
+        <div class="row g-3 mb-3">
+          <div class="col-md-5">
+            {{ form.range_start.label(class="form-label fw-semibold") }}
+            {{ form.range_start(class="form-control font-monospace" + (" is-invalid" if form.range_start.errors else ""),
+                                **{"@input":"updatePreview()", "x-model":"rangeStart"}) }}
+            {% for e in form.range_start.errors %}
+              <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="col-md-2 d-flex align-items-end pb-1">
+            <span class="text-muted w-100 text-center">→</span>
+          </div>
+          <div class="col-md-5">
+            {{ form.range_end.label(class="form-label fw-semibold") }}
+            {{ form.range_end(class="form-control font-monospace" + (" is-invalid" if form.range_end.errors else ""),
+                              **{"@input":"updatePreview()", "x-model":"rangeEnd"}) }}
+            {% for e in form.range_end.errors %}
+              <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+        </div>
+
+        <!-- Range preview -->
+        <div :class="{'range-preview':true, 'visible': previewVisible}" class="range-preview mb-3">
+          <template x-if="previewOk">
+            <div>
+              <span class="count" x-text="rangeCount"></span> numbers will be created
+              <span class="text-muted ms-2">
+                (<span x-text="rangeStart"></span>
+                →
+                <span x-text="rangeEnd"></span>)
+              </span>
+            </div>
+          </template>
+          <template x-if="!previewOk">
+            <span class="text-danger">
+              <i class="bi bi-exclamation-triangle me-1"></i>
+              <span x-text="previewError"></span>
+            </span>
+          </template>
+        </div>
+        {% else %}
+        <!-- Range display (read-only) -->
+        <div class="alert alert-light border mb-3">
+          <div class="fw-semibold mb-1">Number Range (read-only)</div>
+          <code>{{ pool.range_start }} → {{ pool.range_end }}</code>
+          <span class="text-muted ms-3">{{ pool.total_count }} numbers</span>
+        </div>
+        {% endif %}
+
+        <div class="d-flex gap-2 mt-4">
+          <button type="submit" class="btn btn-primary px-4"
+                  {% if not pool %}:disabled="!previewOk && rangeStart !== ''"{% endif %}>
+            <i class="bi bi-{{ 'floppy' if pool else 'plus-circle' }} me-2"></i>
+            {{ 'Save Changes' if pool else 'Create Pool' }}
+          </button>
+          <a href="{{ url_for('did.pool_detail', pool_id=pool.id) if pool else url_for('did.pools_list') }}"
+             class="btn btn-outline-secondary">Cancel</a>
+        </div>
+
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+function poolForm() {
+  return {
+    locationId:     '{{ form.location_id.data or "" }}',
+    rangeStart:     '{{ form.range_start.data or "" }}',
+    rangeEnd:       '{{ form.range_end.data or "" }}',
+    previewVisible: false,
+    previewOk:      false,
+    previewError:   '',
+    rangeCount:     0,
+    refreshing:     false,
+
+    updatePreview() {
+      const s = this.rangeStart.trim();
+      const e = this.rangeEnd.trim();
+      const e164 = /^\+[1-9]\d{6,14}$/;
+
+      if (!s || !e) {
+        this.previewVisible = false;
+        return;
+      }
+      if (!e164.test(s) || !e164.test(e)) {
+        this.previewVisible = true;
+        this.previewOk      = false;
+        this.previewError   = 'Both fields must be valid E.164 numbers.';
+        return;
+      }
+      const sNum = parseInt(s.replace('+',''));
+      const eNum = parseInt(e.replace('+',''));
+      if (eNum < sNum) {
+        this.previewVisible = true;
+        this.previewOk      = false;
+        this.previewError   = 'Range end must be ≥ range start.';
+        return;
+      }
+      const count = eNum - sNum + 1;
+      if (count > 10000) {
+        this.previewVisible = true;
+        this.previewOk      = false;
+        this.previewError   = `Range too large (${count.toLocaleString()} numbers, max 10,000).`;
+        return;
+      }
+      this.rangeCount     = count.toLocaleString();
+      this.previewOk      = true;
+      this.previewVisible = true;
+    },
+
+    async refreshLocations() {
+      this.refreshing = true;
+      try {
+        const resp = await fetch('/admin/did/api/locations');
+        const locs = await resp.json();
+        const sel  = document.querySelector('[name=location_id]');
+        sel.innerHTML = '';
+        locs.forEach(loc => {
+          const opt = document.createElement('option');
+          opt.value       = loc.id;
+          opt.textContent = loc.name;
+          if (loc.id === this.locationId) opt.selected = true;
+          sel.appendChild(opt);
+        });
+      } catch(e) {
+        alert('Could not load locations: ' + e.message);
+      }
+      this.refreshing = false;
+    }
+  }
+}
+</script>
+{% endblock %}
