@@ -1,0 +1,158 @@
+{% extends "setup/_layout.html" %}
+{% block title %}Step 4 — SSO{% endblock %}
+{% block step_subtitle %}Connect Orbit to an Identity Provider (IdP) so admins and users can log in with their corporate credentials. Skip to use local accounts only.{% endblock %}
+
+{% block content %}
+<form method="POST" enctype="multipart/form-data" novalidate
+      x-data="ssoForm('{{ form.sso_protocol.data or 'saml' }}', {{ 'true' if form.sso_enabled.data else 'false' }})">
+  {{ form.hidden_tag() }}
+
+  <div class="form-check form-switch mb-4">
+    {{ form.sso_enabled(class="form-check-input", role="switch",
+                        style="width:3rem;height:1.5rem;",
+                        **{"@change":"enabled=$event.target.checked"}) }}
+    <label class="form-check-label fw-semibold ms-2 fs-6" for="{{ form.sso_enabled.id }}">
+      Enable Single Sign-On (SSO)
+    </label>
+  </div>
+
+  <div x-show="enabled" x-transition>
+    <p class="section-label">Identity Provider</p>
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        {{ form.sso_provider.label(class="form-label") }}
+        {{ form.sso_provider(class="form-select",
+                             **{"@change":"onProviderChange($event.target.value)"}) }}
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Protocol</label>
+        <div class="d-flex gap-3 mt-2">
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="sso_protocol"
+                   value="saml" x-model="protocol" id="proto_saml"/>
+            <label class="form-check-label" for="proto_saml">SAML 2.0</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="sso_protocol"
+                   value="oidc" x-model="protocol" id="proto_oidc"/>
+            <label class="form-check-label" for="proto_oidc">OpenID Connect</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SAML Fields -->
+    <div x-show="protocol === 'saml'" x-transition>
+      <div class="alert alert-info py-2 mb-3">
+        <i class="bi bi-info-circle me-2"></i>
+        Upload your IdP metadata XML for auto-configuration, or fill in the fields manually.
+      </div>
+      <div class="mb-3">
+        {{ form.saml_metadata_file.label(class="form-label") }}
+        {{ form.saml_metadata_file(class="form-control", accept=".xml") }}
+        <div class="form-text">Uploading metadata will auto-fill the fields below.</div>
+      </div>
+      <div class="row g-3 mb-3">
+        <div class="col-12">
+          {{ form.saml_entity_id.label(class="form-label") }}
+          {{ form.saml_entity_id(class="form-control", placeholder="https://sts.windows.net/{tenant}/") }}
+        </div>
+        <div class="col-12">
+          {{ form.saml_sso_url.label(class="form-label") }}
+          {{ form.saml_sso_url(class="form-control",
+             placeholder="https://login.microsoftonline.com/{tenant}/saml2") }}
+        </div>
+        <div class="col-12">
+          {{ form.saml_slo_url.label(class="form-label") }}
+          {{ form.saml_slo_url(class="form-control") }}
+        </div>
+        <div class="col-12">
+          {{ form.saml_certificate.label(class="form-label") }}
+          {{ form.saml_certificate(class="form-control font-monospace", rows=4,
+             placeholder="MIIDBTCCAe2gAwIBAgI...") }}
+          <div class="form-text">Paste the raw base64 certificate (without PEM headers).</div>
+        </div>
+        <div class="col-md-8">
+          {{ form.saml_name_id_format.label(class="form-label") }}
+          {{ form.saml_name_id_format(class="form-select") }}
+        </div>
+      </div>
+
+      <!-- SP Metadata download hint -->
+      <div class="alert alert-secondary py-2">
+        <i class="bi bi-download me-2"></i>
+        After completing setup, download your <strong>SP Metadata XML</strong> from
+        <code>/auth/saml/metadata</code> and upload it to your IdP.
+      </div>
+    </div>
+
+    <!-- OIDC Fields -->
+    <div x-show="protocol === 'oidc'" x-transition>
+      <div class="row g-3 mb-3">
+        <div class="col-12">
+          {{ form.oidc_discovery_url.label(class="form-label") }}
+          {{ form.oidc_discovery_url(class="form-control",
+             placeholder="https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration") }}
+          <div class="form-text">All endpoints will be auto-discovered from this URL.</div>
+        </div>
+        <div class="col-md-6">
+          {{ form.oidc_client_id.label(class="form-label") }}
+          {{ form.oidc_client_id(class="form-control") }}
+        </div>
+        <div class="col-md-6">
+          {{ form.oidc_client_secret.label(class="form-label") }}
+          {{ form.oidc_client_secret(class="form-control") }}
+        </div>
+      </div>
+      <div class="alert alert-secondary py-2">
+        <i class="bi bi-link-45deg me-2"></i>
+        Set your IdP's redirect/callback URL to:
+        <code>https://{{ request.host }}/auth/oidc/callback</code>
+      </div>
+    </div>
+
+    <hr class="section-divider"/>
+    <p class="section-label">Claim / Attribute Mapping</p>
+    <div class="row g-2">
+      {% for f in [form.sso_attr_email, form.sso_attr_firstname,
+                   form.sso_attr_lastname, form.sso_admin_group] %}
+      <div class="col-md-3">
+        {{ f.label(class="form-label") }}
+        {{ f(class="form-control form-control-sm") }}
+      </div>
+      {% endfor %}
+    </div>
+    <div class="form-text mt-1">
+      <strong>Admin Group</strong> — users belonging to this group/claim will be provisioned as GUI Admins.
+    </div>
+  </div>
+
+  <div x-show="!enabled" class="alert alert-secondary">
+    <i class="bi bi-skip-forward me-2"></i>
+    SSO disabled. Admins and users will log in with local or LDAP credentials.
+  </div>
+
+  <div class="mt-4">
+    <button type="submit" class="btn btn-primary px-4">
+      Save & Continue <i class="bi bi-arrow-right ms-1"></i>
+    </button>
+    <a href="{{ url_for('setup.step5') }}" class="btn btn-link ms-2">Skip this step</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function ssoForm(initialProtocol, initialEnabled) {
+  return {
+    protocol: initialProtocol,
+    enabled:  initialEnabled,
+    onProviderChange(val) {
+      if (['azure_ad','okta','google'].includes(val)) {
+        this.protocol = (val === 'google') ? 'oidc' : 'saml';
+      }
+    }
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,225 @@
+{% extends "setup/_layout.html" %}
+{% block title %}Step 6 — Admin Account{% endblock %}
+{% block step_subtitle %}Create the first Platform Administrator for Orbit. This account manages the application setup page and system-level settings.{% endblock %}
+
+{% block content %}
+<form method="POST" novalidate x-data="adminForm()">
+  {{ form.hidden_tag() }}
+
+  <!-- Role explainer -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-4">
+      <div class="border rounded-3 p-3 h-100 bg-light">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span class="badge bg-danger">Platform Admin</span>
+          <small class="text-muted">← This account</small>
+        </div>
+        <ul class="mb-0 small text-muted ps-3">
+          <li>Manages setup &amp; system config</li>
+          <li>Rotates API tokens</li>
+          <li>Cannot access GUI admin features</li>
+          <li>Cannot access Webex platform directly</li>
+        </ul>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="border rounded-3 p-3 h-100">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span class="badge bg-primary">GUI Admin</span>
+          <small class="text-muted">← Created later</small>
+        </div>
+        <ul class="mb-0 small text-muted ps-3">
+          <li>Full CRUD on all WxC features</li>
+          <li>DID management</li>
+          <li>User &amp; workspace provisioning</li>
+          <li>Cannot access setup page</li>
+        </ul>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="border rounded-3 p-3 h-100">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span class="badge bg-secondary">End User</span>
+          <small class="text-muted">← Self-service portal</small>
+        </div>
+        <ul class="mb-0 small text-muted ps-3">
+          <li>Profile &amp; device management</li>
+          <li>Call forwarding (on-demand/scheduled)</li>
+          <li>Voicemail settings</li>
+          <li>Restricted to /portal only</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <hr class="section-divider"/>
+  <p class="section-label">Account Details</p>
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      {{ form.admin_first_name.label(class="form-label") }}
+      {{ form.admin_first_name(class="form-control" + (" is-invalid" if form.admin_first_name.errors else "")) }}
+      {% for e in form.admin_first_name.errors %}
+        <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-6">
+      {{ form.admin_last_name.label(class="form-label") }}
+      {{ form.admin_last_name(class="form-control" + (" is-invalid" if form.admin_last_name.errors else "")) }}
+      {% for e in form.admin_last_name.errors %}
+        <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-6">
+      {{ form.admin_username.label(class="form-label") }}
+      <div class="input-group">
+        <span class="input-group-text"><i class="bi bi-person"></i></span>
+        {{ form.admin_username(class="form-control" + (" is-invalid" if form.admin_username.errors else "")) }}
+      </div>
+      {% for e in form.admin_username.errors %}
+        <div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-6">
+      {{ form.admin_email.label(class="form-label") }}
+      <div class="input-group">
+        <span class="input-group-text"><i class="bi bi-envelope"></i></span>
+        {{ form.admin_email(class="form-control" + (" is-invalid" if form.admin_email.errors else "")) }}
+      </div>
+      {% for e in form.admin_email.errors %}
+        <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+    </div>
+  </div>
+
+  <hr class="section-divider"/>
+  <p class="section-label">Password</p>
+
+  <!-- Password policy reminder -->
+  <div class="alert alert-light border py-2 mb-3 small">
+    <i class="bi bi-shield-lock me-2 text-primary"></i>
+    Minimum <strong>12 characters</strong> &bull;
+    Must include <strong>uppercase</strong>, <strong>lowercase</strong>,
+    <strong>digit</strong> and <strong>special character</strong>
+    <code>(@$!%*#?&amp;^_-)</code>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      {{ form.admin_password.label(class="form-label") }}
+      <div class="input-group">
+        {{ form.admin_password(class="form-control" + (" is-invalid" if form.admin_password.errors else ""),
+                               **{":type":"showPass1?'text':'password'",
+                                  "@input":"checkStrength($event.target.value)"}) }}
+        <button class="btn btn-outline-secondary" type="button"
+                @click="showPass1=!showPass1">
+          <i class="bi" :class="showPass1?'bi-eye-slash':'bi-eye'"></i>
+        </button>
+      </div>
+      <!-- Strength bar -->
+      <div class="mt-2">
+        <div class="progress" style="height:5px;">
+          <div class="progress-bar pw-strength"
+               :style="`width:${strength.pct}%; background:${strength.color};`"></div>
+        </div>
+        <small :class="`text-${strength.cls} mt-1 d-block`" x-text="strength.label"></small>
+      </div>
+      <!-- Criteria checklist -->
+      <ul class="list-unstyled mt-2 mb-0 small">
+        <li :class="crit.length ? 'text-success' : 'text-muted'">
+          <i class="bi" :class="crit.length ? 'bi-check-circle-fill' : 'bi-circle'"></i>
+          12+ characters
+        </li>
+        <li :class="crit.upper ? 'text-success' : 'text-muted'">
+          <i class="bi" :class="crit.upper ? 'bi-check-circle-fill' : 'bi-circle'"></i>
+          Uppercase letter
+        </li>
+        <li :class="crit.lower ? 'text-success' : 'text-muted'">
+          <i class="bi" :class="crit.lower ? 'bi-check-circle-fill' : 'bi-circle'"></i>
+          Lowercase letter
+        </li>
+        <li :class="crit.digit ? 'text-success' : 'text-muted'">
+          <i class="bi" :class="crit.digit ? 'bi-check-circle-fill' : 'bi-circle'"></i>
+          Number
+        </li>
+        <li :class="crit.special ? 'text-success' : 'text-muted'">
+          <i class="bi" :class="crit.special ? 'bi-check-circle-fill' : 'bi-circle'"></i>
+          Special character
+        </li>
+      </ul>
+      {% for e in form.admin_password.errors %}
+        <div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+    </div>
+
+    <div class="col-md-6">
+      {{ form.admin_password_confirm.label(class="form-label") }}
+      <div class="input-group">
+        {{ form.admin_password_confirm(class="form-control" + (" is-invalid" if form.admin_password_confirm.errors else ""),
+                                       **{":type":"showPass2?'text':'password'",
+                                          "@input":"checkMatch($event.target.value)"}) }}
+        <button class="btn btn-outline-secondary" type="button"
+                @click="showPass2=!showPass2">
+          <i class="bi" :class="showPass2?'bi-eye-slash':'bi-eye'"></i>
+        </button>
+      </div>
+      <div class="mt-2 small" x-show="matchMsg"
+           :class="matchOk ? 'text-success' : 'text-danger'">
+        <i class="bi me-1"
+           :class="matchOk ? 'bi-check-circle-fill' : 'bi-x-circle-fill'"></i>
+        <span x-text="matchMsg"></span>
+      </div>
+      {% for e in form.admin_password_confirm.errors %}
+        <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+    </div>
+  </div>
+
+  <div class="mt-4">
+    <button type="submit" class="btn btn-primary px-4" :disabled="!allValid">
+      Create Account &amp; Continue <i class="bi bi-arrow-right ms-1"></i>
+    </button>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function adminForm() {
+  return {
+    showPass1: false,
+    showPass2: false,
+    matchOk:   false,
+    matchMsg:  '',
+    strength:  { pct: 0, color: '#e2e8f0', label: '', cls: 'muted' },
+    crit:      { length: false, upper: false, lower: false, digit: false, special: false },
+    pw: '',
+
+    get allValid() {
+      return Object.values(this.crit).every(Boolean) && this.matchOk;
+    },
+
+    checkStrength(val) {
+      this.pw = val;
+      this.crit = {
+        length:  val.length >= 12,
+        upper:   /[A-Z]/.test(val),
+        lower:   /[a-z]/.test(val),
+        digit:   /\d/.test(val),
+        special: /[@$!%*#?&^_\-]/.test(val),
+      };
+      const score = Object.values(this.crit).filter(Boolean).length;
+      const map = [
+        { pct:  0,  color:'#e2e8f0', label:'',           cls:'muted'   },
+        { pct: 20,  color:'#ef4444', label:'Very Weak',  cls:'danger'  },
+        { pct: 40,  color:'#f97316', label:'Weak',       cls:'warning' },
+        { pct: 60,  color:'#eab308', label:'Fair',       cls:'warning' },
+        { pct: 80,  color:'#22c55e', label:'Strong',     cls:'success' },
+        { pct:100,  color:'#16a34a', label:'Very Strong',cls:'success' },
+      ];
+      this.strength = map[score];
+    },
+
+    checkMatch(val) {
+      if (!val) { this.matchMsg = ''; return; }
+      this.matchOk  = val === this.pw;
+      this.matchMsg = this.matchOk ? 'Passwords match.' : 'Passwords do not match.';
+    }
+  }
+}
+</script>
+{% endblock %}

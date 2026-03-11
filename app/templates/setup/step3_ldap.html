@@ -1,0 +1,176 @@
+{% extends "setup/_layout.html" %}
+{% block title %}Step 3 — LDAP{% endblock %}
+{% block step_subtitle %}Optionally connect Orbit to your LDAP/Active Directory for user authentication. Skip if using SSO or local accounts only.{% endblock %}
+
+{% block content %}
+<form method="POST" novalidate x-data="ldapForm({{ 'true' if form.ldap_enabled.data else 'false' }})">
+  {{ form.hidden_tag() }}
+
+  <!-- Enable toggle -->
+  <div class="form-check form-switch mb-4">
+    {{ form.ldap_enabled(class="form-check-input", role="switch",
+                         style="width:3rem;height:1.5rem;",
+                         **{"@change":"enabled = $event.target.checked"}) }}
+    <label class="form-check-label fw-semibold ms-2 fs-6" for="{{ form.ldap_enabled.id }}">
+      Enable LDAP / Active Directory Integration
+    </label>
+  </div>
+
+  <div x-show="enabled" x-transition>
+
+    <p class="section-label">Server Connection</p>
+    <div class="row g-3 mb-3">
+      <div class="col-md-8">
+        {{ form.ldap_host.label(class="form-label") }}
+        {{ form.ldap_host(class="form-control", placeholder="ldap.company.com or 192.168.1.10") }}
+      </div>
+      <div class="col-md-4">
+        {{ form.ldap_port.label(class="form-label") }}
+        <input type="number" name="ldap_port" class="form-control"
+               :value="useSSL ? 636 : 389" x-model="port" min="1" max="65535"/>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <div class="form-check form-switch">
+          {{ form.ldap_use_ssl(class="form-check-input", role="switch",
+                               **{"@change":"useSSL=$event.target.checked; port=useSSL?636:389; useStartTLS=false"}) }}
+          <label class="form-check-label" for="{{ form.ldap_use_ssl.id }}">
+            LDAPS (SSL) — port 636
+          </label>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="form-check form-switch">
+          {{ form.ldap_use_starttls(class="form-check-input", role="switch",
+                                    **{"@change":"useStartTLS=$event.target.checked; if(useStartTLS) useSSL=false; port=useSSL?636:389"}) }}
+          <label class="form-check-label" for="{{ form.ldap_use_starttls.id }}">
+            STARTTLS — upgrades connection to TLS
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <hr class="section-divider"/>
+    <p class="section-label">Bind Credentials</p>
+    <div class="row g-3 mb-3">
+      <div class="col-12">
+        {{ form.ldap_bind_dn.label(class="form-label") }}
+        {{ form.ldap_bind_dn(class="form-control") }}
+        <div class="form-text">Service account DN used by Orbit to search the directory.</div>
+      </div>
+      <div class="col-12">
+        {{ form.ldap_bind_password.label(class="form-label") }}
+        {{ form.ldap_bind_password(class="form-control") }}
+      </div>
+    </div>
+
+    <!-- Test Connection Button -->
+    <div class="mb-3">
+      <button type="button" class="btn btn-outline-primary btn-sm"
+              @click="testLdap()" :disabled="testing">
+        <span x-show="!testing"><i class="bi bi-plug me-1"></i>Test Connection</span>
+        <span x-show="testing"><span class="spinner-border spinner-border-sm me-2"></span>Testing...</span>
+      </button>
+      <span class="ms-3 test-badge"
+            x-show="testResult"
+            :class="testOk ? 'text-success' : 'text-danger'"
+            x-text="testResult"></span>
+    </div>
+
+    <hr class="section-divider"/>
+    <p class="section-label">Directory Structure</p>
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        {{ form.ldap_base_dn.label(class="form-label") }}
+        {{ form.ldap_base_dn(class="form-control") }}
+      </div>
+      <div class="col-md-6">
+        {{ form.ldap_user_filter.label(class="form-label") }}
+        {{ form.ldap_user_filter(class="form-control") }}
+        <div class="form-text"><code>{username}</code> is replaced with the login input.</div>
+      </div>
+      <div class="col-md-6">
+        {{ form.ldap_admin_group_dn.label(class="form-label") }}
+        {{ form.ldap_admin_group_dn(class="form-control") }}
+        <div class="form-text">Members of this group get GUI Admin role.</div>
+      </div>
+      <div class="col-md-6">
+        {{ form.ldap_user_group_dn.label(class="form-label") }}
+        {{ form.ldap_user_group_dn(class="form-control") }}
+        <div class="form-text">Members of this group get End User role.</div>
+      </div>
+    </div>
+
+    <hr class="section-divider"/>
+    <p class="section-label">Attribute Mapping</p>
+    <div class="row g-2">
+      {% for f in [form.ldap_attr_email, form.ldap_attr_firstname,
+                   form.ldap_attr_lastname, form.ldap_attr_username] %}
+      <div class="col-md-3">
+        {{ f.label(class="form-label") }}
+        {{ f(class="form-control form-control-sm") }}
+      </div>
+      {% endfor %}
+    </div>
+
+  </div><!-- /x-show enabled -->
+
+  <div x-show="!enabled" class="alert alert-secondary">
+    <i class="bi bi-skip-forward me-2"></i>
+    LDAP is disabled. Users will authenticate via local accounts or SSO (configured in Step 4).
+  </div>
+
+  <div class="mt-4">
+    <button type="submit" class="btn btn-primary px-4">
+      Save & Continue <i class="bi bi-arrow-right ms-1"></i>
+    </button>
+    <a href="{{ url_for('setup.step4') }}" class="btn btn-link ms-2">Skip this step</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function ldapForm(initialEnabled) {
+  return {
+    enabled: initialEnabled,
+    useSSL: false,
+    useStartTLS: false,
+    port: 389,
+    testing: false,
+    testOk: false,
+    testResult: '',
+    async testLdap() {
+      this.testing = true;
+      this.testResult = '';
+      try {
+        const form = document.querySelector('form');
+        const data = {
+          host:          form.ldap_host?.value,
+          port:          parseInt(this.port),
+          use_ssl:       this.useSSL,
+          use_starttls:  this.useStartTLS,
+          bind_dn:       form.ldap_bind_dn?.value,
+          bind_password: form.ldap_bind_password?.value,
+        };
+        const resp = await fetch('/setup/api/test-ldap', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json',
+                    'X-CSRFToken': document.querySelector('[name=csrf_token]').value},
+          body: JSON.stringify(data)
+        });
+        const json = await resp.json();
+        this.testOk     = json.success;
+        this.testResult = json.message;
+      } catch(e) {
+        this.testOk     = false;
+        this.testResult = 'Request failed: ' + e.message;
+      }
+      this.testing = false;
+    }
+  }
+}
+</script>
+{% endblock %}

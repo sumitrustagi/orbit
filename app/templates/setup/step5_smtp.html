@@ -1,0 +1,210 @@
+{% extends "setup/_layout.html" %}
+{% block title %}Step 5 — SMTP{% endblock %}
+{% block step_subtitle %}Configure outbound email for user notifications, DID assignment emails, and password resets.{% endblock %}
+
+{% block content %}
+<form method="POST" novalidate x-data="smtpForm()">
+  {{ form.hidden_tag() }}
+
+  <p class="section-label">Mail Server</p>
+  <div class="row g-3 mb-3">
+    <div class="col-md-8">
+      {{ form.smtp_host.label(class="form-label") }}
+      {{ form.smtp_host(class="form-control", **{"x-model":"host"}) }}
+    </div>
+    <div class="col-md-4">
+      {{ form.smtp_port.label(class="form-label") }}
+      {{ form.smtp_port(class="form-control", **{"x-model":"port"}) }}
+    </div>
+    <div class="col-md-6">
+      <div class="form-check form-switch mt-2">
+        {{ form.smtp_use_tls(class="form-check-input", role="switch",
+                             **{"@change":"useTLS=$event.target.checked; if(useTLS){useSSL=false; port=587}"}) }}
+        <label class="form-check-label" for="{{ form.smtp_use_tls.id }}">
+          Use STARTTLS <span class="text-muted">(port 587 — recommended)</span>
+        </label>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="form-check form-switch mt-2">
+        {{ form.smtp_use_ssl(class="form-check-input", role="switch",
+                             **{"@change":"useSSL=$event.target.checked; if(useSSL){useTLS=false; port=465}"}) }}
+        <label class="form-check-label" for="{{ form.smtp_use_ssl.id }}">
+          Use SSL/TLS <span class="text-muted">(port 465)</span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <hr class="section-divider"/>
+  <p class="section-label">Authentication</p>
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      {{ form.smtp_username.label(class="form-label") }}
+      {{ form.smtp_username(class="form-control", **{"x-model":"username"}) }}
+      <div class="form-text">Leave blank if your relay does not require authentication.</div>
+    </div>
+    <div class="col-md-6">
+      {{ form.smtp_password.label(class="form-label") }}
+      <div class="input-group">
+        {{ form.smtp_password(class="form-control",
+                              **{"x-model":"password", ":type":"showPass ? 'text' : 'password'"}) }}
+        <button class="btn btn-outline-secondary" type="button"
+                @click="showPass=!showPass">
+          <i class="bi" :class="showPass ? 'bi-eye-slash' : 'bi-eye'"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <hr class="section-divider"/>
+  <p class="section-label">Sender Identity</p>
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      {{ form.smtp_from_name.label(class="form-label") }}
+      {{ form.smtp_from_name(class="form-control" + (" is-invalid" if form.smtp_from_name.errors else ""),
+                             **{"x-model":"fromName"}) }}
+      {% for e in form.smtp_from_name.errors %}
+        <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-6">
+      {{ form.smtp_from_address.label(class="form-label") }}
+      {{ form.smtp_from_address(class="form-control" + (" is-invalid" if form.smtp_from_address.errors else ""),
+                                **{"x-model":"fromAddr"}) }}
+      {% for e in form.smtp_from_address.errors %}
+        <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+    </div>
+  </div>
+
+  <!-- Live preview of the From header -->
+  <div class="alert alert-light border py-2 mb-3" x-show="fromName && fromAddr">
+    <span class="text-muted small">Preview From header: </span>
+    <span class="font-monospace small"
+          x-text="`${fromName} <${fromAddr}>`"></span>
+  </div>
+
+  <hr class="section-divider"/>
+  <p class="section-label">Test Email <span class="text-muted fw-normal">(optional)</span></p>
+  <div class="row g-3 align-items-end mb-3">
+    <div class="col-md-7">
+      {{ form.smtp_test_recipient.label(class="form-label") }}
+      {{ form.smtp_test_recipient(class="form-control", **{"x-model":"testTo"}) }}
+    </div>
+    <div class="col-md-5">
+      <button type="button" class="btn btn-outline-primary w-100"
+              @click="sendTest()" :disabled="testing || !testTo">
+        <span x-show="!testing"><i class="bi bi-send me-1"></i>Send Test Email</span>
+        <span x-show="testing">
+          <span class="spinner-border spinner-border-sm me-2"></span>Sending...
+        </span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Test result badge -->
+  <div x-show="testResult" x-transition
+       class="alert py-2 mb-3"
+       :class="testOk ? 'alert-success' : 'alert-danger'">
+    <i class="bi me-2" :class="testOk ? 'bi-check-circle-fill' : 'bi-x-circle-fill'"></i>
+    <span x-text="testResult"></span>
+  </div>
+
+  <!-- Quick presets for common providers -->
+  <hr class="section-divider"/>
+  <p class="section-label">Quick Presets</p>
+  <div class="d-flex flex-wrap gap-2">
+    <button type="button" class="btn btn-outline-secondary btn-sm"
+            @click="applyPreset('office365')">
+      <i class="bi bi-microsoft me-1"></i>Microsoft 365
+    </button>
+    <button type="button" class="btn btn-outline-secondary btn-sm"
+            @click="applyPreset('gmail')">
+      <i class="bi bi-google me-1"></i>Gmail / Google Workspace
+    </button>
+    <button type="button" class="btn btn-outline-secondary btn-sm"
+            @click="applyPreset('sendgrid')">
+      SendGrid
+    </button>
+    <button type="button" class="btn btn-outline-secondary btn-sm"
+            @click="applyPreset('ses')">
+      Amazon SES
+    </button>
+  </div>
+
+  <div class="mt-4">
+    <button type="submit" class="btn btn-primary px-4">
+      Save & Continue <i class="bi bi-arrow-right ms-1"></i>
+    </button>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function smtpForm() {
+  return {
+    host: '{{ form.smtp_host.data or "" }}',
+    port: {{ form.smtp_port.data or 587 }},
+    useTLS: {{ 'true' if form.smtp_use_tls.data else 'false' }},
+    useSSL: {{ 'true' if form.smtp_use_ssl.data else 'false' }},
+    username: '{{ form.smtp_username.data or "" }}',
+    password: '',
+    fromName: '{{ form.smtp_from_name.data or "Orbit Platform" }}',
+    fromAddr: '{{ form.smtp_from_address.data or "" }}',
+    testTo: '{{ form.smtp_test_recipient.data or "" }}',
+    showPass: false,
+    testing: false,
+    testOk: false,
+    testResult: '',
+
+    presets: {
+      office365: { host:'smtp.office365.com',  port:587, tls:true,  ssl:false },
+      gmail:     { host:'smtp.gmail.com',       port:587, tls:true,  ssl:false },
+      sendgrid:  { host:'smtp.sendgrid.net',    port:587, tls:true,  ssl:false },
+      ses:       { host:'email-smtp.eu-west-1.amazonaws.com', port:587, tls:true, ssl:false },
+    },
+
+    applyPreset(name) {
+      const p = this.presets[name];
+      if (!p) return;
+      this.host   = p.host;
+      this.port   = p.port;
+      this.useTLS = p.tls;
+      this.useSSL = p.ssl;
+      // Sync to actual form inputs
+      document.querySelector('[name=smtp_host]').value = p.host;
+      document.querySelector('[name=smtp_port]').value = p.port;
+    },
+
+    async sendTest() {
+      this.testing    = true;
+      this.testResult = '';
+      const csrf = document.querySelector('[name=csrf_token]').value;
+      try {
+        const resp = await fetch('/setup/api/test-smtp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+          body: JSON.stringify({
+            host:      this.host,
+            port:      parseInt(this.port),
+            use_tls:   this.useTLS,
+            use_ssl:   this.useSSL,
+            username:  this.username,
+            password:  this.password,
+            from_addr: this.fromAddr,
+            to_addr:   this.testTo,
+          })
+        });
+        const json  = await resp.json();
+        this.testOk     = json.success;
+        this.testResult = json.message;
+      } catch(e) {
+        this.testOk     = false;
+        this.testResult = 'Request failed: ' + e.message;
+      }
+      this.testing = false;
+    }
+  }
+}
+</script>
+{% endblock %}

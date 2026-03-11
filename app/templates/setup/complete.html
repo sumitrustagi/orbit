@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta http-equiv="refresh" content="12;url=https://{{ fqdn }}/auth/login"/>
+  <title>Setup Complete — Orbit</title>
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        crossorigin="anonymous"/>
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"/>
+  <style>
+    body {
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .complete-card {
+      max-width: 600px;
+      width: 100%;
+      background: #fff;
+      border-radius: 1.25rem;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.35);
+      overflow: hidden;
+    }
+    .complete-header {
+      background: linear-gradient(135deg, #1d4ed8, #1e40af);
+      padding: 3rem 2.5rem 2rem;
+      text-align: center;
+      color: #fff;
+    }
+    .checkmark-circle {
+      width: 80px; height: 80px;
+      background: rgba(255,255,255,0.15);
+      border: 3px solid rgba(255,255,255,0.4);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 1.25rem;
+      animation: pop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+    }
+    @keyframes pop {
+      from { transform: scale(0); opacity: 0; }
+      to   { transform: scale(1); opacity: 1; }
+    }
+    .complete-body { padding: 2.5rem; }
+    .info-item {
+      display: flex; align-items: flex-start; gap: 0.75rem;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .info-item:last-child { border-bottom: none; }
+    .info-icon {
+      width: 36px; height: 36px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; font-size: 1rem;
+    }
+    .countdown-bar {
+      height: 4px; background: #e2e8f0; border-radius: 2px; overflow: hidden;
+    }
+    .countdown-fill {
+      height: 100%; background: #1d4ed8;
+      animation: shrink 12s linear forwards;
+    }
+    @keyframes shrink {
+      from { width: 100%; }
+      to   { width: 0%;   }
+    }
+  </style>
+</head>
+<body>
+
+<div class="complete-card">
+  <!-- Header -->
+  <div class="complete-header">
+    <div class="checkmark-circle">
+      <i class="bi bi-check-lg fs-2 text-white"></i>
+    </div>
+    <h2 class="fw-bold mb-1">Setup Complete!</h2>
+    <p class="opacity-75 mb-0">Orbit is ready. HTTPS is now active.</p>
+  </div>
+
+  <!-- Body -->
+  <div class="complete-body">
+
+    <div class="info-item">
+      <div class="info-icon bg-success bg-opacity-10 text-success">
+        <i class="bi bi-lock-fill"></i>
+      </div>
+      <div>
+        <div class="fw-semibold">HTTPS Enabled</div>
+        <div class="text-muted small">
+          Nginx has been reconfigured with TLS. All HTTP traffic redirects to HTTPS automatically.
+        </div>
+      </div>
+    </div>
+
+    <div class="info-item">
+      <div class="info-icon bg-primary bg-opacity-10 text-primary">
+        <i class="bi bi-globe"></i>
+      </div>
+      <div>
+        <div class="fw-semibold">Application URL</div>
+        <a href="https://{{ fqdn }}/auth/login" class="small text-break">
+          https://{{ fqdn }}/auth/login
+        </a>
+      </div>
+    </div>
+
+    <div class="info-item">
+      <div class="info-icon bg-warning bg-opacity-10 text-warning">
+        <i class="bi bi-shield-lock"></i>
+      </div>
+      <div>
+        <div class="fw-semibold">Setup Page Disabled</div>
+        <div class="text-muted small">
+          <code>/setup</code> is now blocked. To re-run setup, set
+          <code>APP_STATE=setup_pending</code> in <code>/opt/orbit/.env</code>
+          and restart the <code>orbit-web</code> service.
+        </div>
+      </div>
+    </div>
+
+    <div class="info-item">
+      <div class="info-icon bg-info bg-opacity-10 text-info">
+        <i class="bi bi-people-fill"></i>
+      </div>
+      <div>
+        <div class="fw-semibold">Next Steps</div>
+        <ul class="text-muted small mb-0 ps-3 mt-1">
+          <li>Log in with the Platform Admin account you created in Step 6</li>
+          <li>Create GUI Admin users in <strong>System → User Management</strong></li>
+          <li>Define your DID pools in <strong>DID Management</strong></li>
+          <li>Configure ServiceNow integration in <strong>System → Integrations</strong></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Auto-redirect countdown -->
+    <div class="mt-4 text-center">
+      <p class="text-muted small mb-2">
+        <i class="bi bi-arrow-right-circle me-1"></i>
+        Redirecting to login in <strong id="countdown">12</strong> seconds...
+      </p>
+      <div class="countdown-bar">
+        <div class="countdown-fill"></div>
+      </div>
+      <a href="https://{{ fqdn }}/auth/login"
+         class="btn btn-primary mt-3 px-4">
+        <i class="bi bi-box-arrow-in-right me-2"></i>Go to Login Now
+      </a>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // Live countdown
+  let secs = 12;
+  const el = document.getElementById('countdown');
+  setInterval(() => {
+    secs = Math.max(0, secs - 1);
+    if (el) el.textContent = secs;
+  }, 1000);
+</script>
+</body>
+</html>

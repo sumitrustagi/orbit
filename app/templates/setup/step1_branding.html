@@ -1,0 +1,145 @@
+{% extends "setup/_layout.html" %}
+{% block title %}Step 1 — Branding{% endblock %}
+{% block step_subtitle %}Define how Orbit looks to your users. You can update these settings later in System Administration.{% endblock %}
+
+{% block content %}
+<form method="POST" enctype="multipart/form-data" novalidate
+      x-data="brandingForm()" @submit="submitting=true">
+  {{ form.hidden_tag() }}
+
+  <p class="section-label">Identity</p>
+  <div class="row g-3">
+    <div class="col-md-6">
+      {{ form.app_name.label(class="form-label") }}
+      {{ form.app_name(class="form-control" + (" is-invalid" if form.app_name.errors else "")) }}
+      {% for e in form.app_name.errors %}
+        <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-6">
+      {{ form.company_name.label(class="form-label") }}
+      {{ form.company_name(class="form-control" + (" is-invalid" if form.company_name.errors else "")) }}
+      {% for e in form.company_name.errors %}
+        <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+    </div>
+  </div>
+
+  <hr class="section-divider"/>
+  <p class="section-label">Logo</p>
+  <div class="row g-3 align-items-center">
+    <div class="col-md-8">
+      {{ form.logo.label(class="form-label") }}
+      {{ form.logo(class="form-control" + (" is-invalid" if form.logo.errors else ""),
+                   accept=".png,.svg,.jpg,.jpeg", x_ref="logoInput",
+                   **{"@change":"previewLogo($event)"}) }}
+      <div class="form-text">
+        <i class="bi bi-info-circle me-1"></i>
+        PNG, SVG or JPG &bull; Max 512×512 px &bull; Max 200 KB
+      </div>
+      {% for e in form.logo.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-4 text-center">
+      <div class="border rounded-3 p-3 bg-light" style="min-height:90px;">
+        <template x-if="logoPreview">
+          <img :src="logoPreview" alt="Logo Preview"
+               style="max-height:80px;max-width:100%;object-fit:contain;"/>
+        </template>
+        <template x-if="!logoPreview">
+          <span class="text-muted small">Preview</span>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <hr class="section-divider"/>
+  <p class="section-label">Brand Colours</p>
+  <div class="row g-3">
+    <div class="col-md-6">
+      {{ form.primary_color.label(class="form-label") }}
+      <div class="input-group">
+        <input type="color" class="form-control form-control-color"
+               x-model="primaryColor" style="max-width:50px;"/>
+        {{ form.primary_color(class="form-control", x_model="primaryColor") }}
+      </div>
+      <div class="form-text">Used for headers, buttons and navigation.</div>
+    </div>
+    <div class="col-md-6">
+      {{ form.accent_color.label(class="form-label") }}
+      <div class="input-group">
+        <input type="color" class="form-control form-control-color"
+               x-model="accentColor" style="max-width:50px;"/>
+        {{ form.accent_color(class="form-control", x_model="accentColor") }}
+      </div>
+      <div class="form-text">Used for highlights, links and badges.</div>
+    </div>
+    <!-- Live preview swatch -->
+    <div class="col-12">
+      <div class="rounded-3 d-flex align-items-center gap-3 p-3 mt-1"
+           :style="`background:${primaryColor};`">
+        <span class="fw-bold text-white" x-text="$refs.appNameInput?.value || 'Orbit'"></span>
+        <span class="badge rounded-pill fw-semibold"
+              :style="`background:${accentColor};color:#fff;`">Sample Badge</span>
+        <span class="text-white opacity-75 small">← Live Preview</span>
+      </div>
+    </div>
+  </div>
+
+  <hr class="section-divider"/>
+  <p class="section-label">Regional Defaults</p>
+  <div class="row g-3">
+    <div class="col-md-6">
+      {{ form.timezone.label(class="form-label") }}
+      {{ form.timezone(class="form-select") }}
+      <div class="form-text">Platform-wide default; users can override in their profile.</div>
+    </div>
+    <div class="col-md-6">
+      {{ form.language.label(class="form-label") }}
+      {{ form.language(class="form-select") }}
+    </div>
+  </div>
+
+  <input type="hidden" x-bind:value="primaryColor" name="primary_color"/>
+  <input type="hidden" x-bind:value="accentColor"  name="accent_color"/>
+
+  <div class="mt-4">
+    <button type="submit" class="btn btn-primary px-4"
+            :disabled="submitting">
+      <span x-show="!submitting">Save & Continue <i class="bi bi-arrow-right ms-1"></i></span>
+      <span x-show="submitting">
+        <span class="spinner-border spinner-border-sm me-2"></span>Saving...
+      </span>
+    </button>
+  </div>
+</form>
+{% endblock %}
+
+{% block footer_right %}
+  <button form="step1form" type="submit" class="btn btn-primary btn-sm px-3">
+    Next <i class="bi bi-arrow-right ms-1"></i>
+  </button>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function brandingForm() {
+  return {
+    logoPreview: null,
+    primaryColor: '{{ form.primary_color.data or "#1E40AF" }}',
+    accentColor:  '{{ form.accent_color.data  or "#3B82F6" }}',
+    submitting: false,
+    previewLogo(event) {
+      const file = event.target.files[0];
+      if (!file) { this.logoPreview = null; return; }
+      if (file.size > 200 * 1024) {
+        alert('Logo exceeds 200 KB limit.');
+        event.target.value = '';
+        this.logoPreview = null;
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = e => { this.logoPreview = e.target.result; };
+      reader.readAsDataURL(file);
+    }
+  }
+}
+</script>
+{% endblock %}

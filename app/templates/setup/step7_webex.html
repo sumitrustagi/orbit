@@ -1,0 +1,192 @@
+{% extends "setup/_layout.html" %}
+{% block title %}Step 7 — Webex Integration{% endblock %}
+{% block step_subtitle %}Provide a Webex Calling org-level access token. Orbit uses this to manage your WxC configuration via the Webex API and wxcadm library.{% endblock %}
+
+{% block content %}
+<form method="POST" novalidate x-data="webexForm()">
+  {{ form.hidden_tag() }}
+
+  <!-- How to get a token -->
+  <div class="accordion mb-4" id="tokenHelp">
+    <div class="accordion-item border rounded-3">
+      <h2 class="accordion-header">
+        <button class="accordion-button collapsed rounded-3 fw-semibold"
+                type="button" data-bs-toggle="collapse"
+                data-bs-target="#tokenHelpBody">
+          <i class="bi bi-question-circle-fill text-primary me-2"></i>
+          How to obtain a Webex Org-Level Access Token
+        </button>
+      </h2>
+      <div id="tokenHelpBody" class="accordion-collapse collapse">
+        <div class="accordion-body small">
+          <ol class="mb-0">
+            <li>Sign in at <a href="https://developer.webex.com" target="_blank" rel="noopener">developer.webex.com</a> with a <strong>fullHere is the continuation from File 10, completing all remaining Section 2 templates and wiring files.
+
+---
+
+## File 10 (Complete) — `app/templates/setup/step5_smtp.html`
+
+```html
+{% extends "setup/_layout.html" %}
+{% block title %}Step 5 — SMTP{% endblock %}
+{% block step_subtitle %}Configure outbound email for user notifications, DID assignment emails, and password resets.{% endblock %}
+
+{% block content %}
+<form method="POST" novalidate x-data="smtpForm()">
+  {{ form.hidden_tag() }}
+
+  <p class="section-label">Mail Server</p>
+  <div class="row g-3 mb-3">
+    <div class="col-md-8">
+      {{ form.smtp_host.label(class="form-label") }}
+      {{ form.smtp_host(class="form-control", **{"x-model":"host"}) }}
+    </div>
+    <div class="col-md-4">
+      {{ form.smtp_port.label(class="form-label") }}
+      {{ form.smtp_port(class="form-control", **{"x-model":"port"}) }}
+    </div>
+
+    <div class="col-md-6">
+      <div class="form-check form-switch mt-2">
+        {{ form.smtp_use_tls(class="form-check-input", role="switch",
+           **{"@change":"useTLS=$event.target.checked; if(useTLS){useSSL=false; port=587}"}) }}
+        <label class="form-check-label" for="{{ form.smtp_use_tls.id }}">
+          Use STARTTLS <span class="text-muted">(recommended, port 587)</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="col-md-6">
+      <div class="form-check form-switch mt-2">
+        {{ form.smtp_use_ssl(class="form-check-input", role="switch",
+           **{"@change":"useSSL=$event.target.checked; if(useSSL){useTLS=false; port=465}"}) }}
+        <label class="form-check-label" for="{{ form.smtp_use_ssl.id }}">
+          Use SSL <span class="text-muted">(legacy, port 465)</span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <hr class="section-divider"/>
+  <p class="section-label">Authentication</p>
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      {{ form.smtp_username.label(class="form-label") }}
+      {{ form.smtp_username(class="form-control", **{"x-model":"username"}) }}
+      <div class="form-text">Leave blank if the relay does not require authentication.</div>
+    </div>
+    <div class="col-md-6">
+      {{ form.smtp_password.label(class="form-label") }}
+      <div class="input-group">
+        {{ form.smtp_password(class="form-control", **{"x-model":"password", ":type":"showPw ? 'text' : 'password'"}) }}
+        <button class="btn btn-outline-secondary" type="button"
+                @click="showPw = !showPw">
+          <i :class="showPw ? 'bi bi-eye-slash' : 'bi bi-eye'"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <hr class="section-divider"/>
+  <p class="section-label">Sender Identity</p>
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      {{ form.smtp_from_name.label(class="form-label") }}
+      {{ form.smtp_from_name(class="form-control" + (" is-invalid" if form.smtp_from_name.errors else "")) }}
+      {% for e in form.smtp_from_name.errors %}
+        <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="col-md-6">
+      {{ form.smtp_from_address.label(class="form-label") }}
+      {{ form.smtp_from_address(class="form-control" + (" is-invalid" if form.smtp_from_address.errors else ""),
+                                **{"x-model":"fromAddr"}) }}
+      {% for e in form.smtp_from_address.errors %}
+        <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+    </div>
+  </div>
+
+  <hr class="section-divider"/>
+  <p class="section-label">Test Email (Optional)</p>
+  <div class="row g-3 align-items-end mb-3">
+    <div class="col-md-7">
+      {{ form.smtp_test_recipient.label(class="form-label") }}
+      {{ form.smtp_test_recipient(class="form-control", **{"x-model":"testTo"}) }}
+      <div class="form-text">A test email will be sent when you click Save if this field is filled.</div>
+    </div>
+    <div class="col-md-5">
+      <button type="button" class="btn btn-outline-primary w-100"
+              @click="testSmtp()" :disabled="testing || !testTo">
+        <span x-show="!testing"><i class="bi bi-send me-1"></i> Send Test Email Now</span>
+        <span x-show="testing">
+          <span class="spinner-border spinner-border-sm me-2"></span>Sending...
+        </span>
+      </button>
+    </div>
+    <div class="col-12" x-show="testResult">
+      <div :class="testOk ? 'alert alert-success' : 'alert alert-danger'"
+           class="py-2 mb-0">
+        <i :class="testOk ? 'bi bi-check-circle-fill' : 'bi bi-x-circle-fill'" class="me-2"></i>
+        <span x-text="testResult"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-4">
+    <button type="submit" class="btn btn-primary px-4">
+      Save & Continue <i class="bi bi-arrow-right ms-1"></i>
+    </button>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function smtpForm() {
+  return {
+    host:     '{{ form.smtp_host.data or "" }}',
+    port:     {{ form.smtp_port.data or 587 }},
+    useTLS:   {{ 'true' if form.smtp_use_tls.data else 'false' }},
+    useSSL:   {{ 'true' if form.smtp_use_ssl.data else 'false' }},
+    username: '',
+    password: '',
+    fromAddr: '{{ form.smtp_from_address.data or "" }}',
+    testTo:   '',
+    testing:  false,
+    testOk:   false,
+    testResult: '',
+    showPw:   false,
+
+    async testSmtp() {
+      this.testing    = true;
+      this.testResult = '';
+      try {
+        const resp = await fetch('/setup/api/test-smtp', {
+          method:  'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken':  document.querySelector('[name=csrf_token]').value
+          },
+          body: JSON.stringify({
+            host:      this.host,
+            port:      parseInt(this.port),
+            use_tls:   this.useTLS,
+            use_ssl:   this.useSSL,
+            username:  this.username,
+            password:  this.password,
+            from_addr: this.fromAddr,
+            to_addr:   this.testTo,
+          })
+        });
+        const json      = await resp.json();
+        this.testOk     = json.success;
+        this.testResult = json.message;
+      } catch (e) {
+        this.testOk     = false;
+        this.testResult = 'Request failed: ' + e.message;
+      }
+      this.testing = false;
+    }
+  }
+}
+</script>
+{% endblock %}
