@@ -1,0 +1,77 @@
+# app/services/saml_service.py
+"""
+Generates the python3-saml settings dict dynamically from AppConfig / .env.
+Called by auth.py SAML routes.
+"""
+import os
+import json
+from pathlib import Path
+from app.utils.crypto import decrypt
+
+
+def get_saml_settings(fqdn: str) -> dict:
+    """
+    Build the python3-saml settings dictionary from environment variables.
+    Called at request time so changes to config take effect immediately.
+    """
+    base_url = f"https://{fqdn}"
+
+    return {
+        "strict": True,
+        "debug":  os.environ.get("FLASK_ENV") == "development",
+
+        "sp": {
+            "entityId":                  f"{base_url}/auth/saml/metadata",
+            "assertionConsumerService": {
+                "url":     f"{base_url}/auth/saml/acs",
+                "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST",
+            },
+            "singleLogoutService": {
+                "url":     f"{base_url}/auth/saml/slo",
+                "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect",
+            },
+            "NameIDFormat": os.environ.get(
+                "SAML_NAME_ID_FORMAT",
+                "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+            ),
+            "x509cert": "",    # SP cert not required unless signing requests
+            "privateKey": "",
+        },
+
+        "idp": {
+            "entityId":           os.environ.get("SAML_ENTITY_ID", ""),
+            "singleSignOnService": {
+                "url":     os.environ.get("SAML_SSO_URL", ""),
+                "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect",
+            },
+            "singleLogoutService": {
+                "url":     os.environ.get("SAML_SLO_URL", ""),
+                "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect",
+            },
+            "x509cert": os.environ.get("SAML_CERTIFICATE", ""),
+        },
+
+        "security": {
+            "nameIdEncrypted":       False,
+            "authnRequestsSigned":   False,
+            "logoutRequestSigned":   False,
+            "logoutResponseSigned":  False,
+            "signMetadata":          False,
+            "wantMessagesSigned":    False,
+            "wantAssertionsSigned":  True,
+            "wantNameId":            True,
+            "wantNameIdEncrypted":   False,
+            "wantAssertionsEncrypted": False,
+            "signatureAlgorithm":
+                "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
+            "digestAlgorithm":
+                "http://www.w3.org/2001/04/xmlenc#sha256",
+        },
+
+        "contactPerson": {
+            "technical": {
+                "givenName":    "Orbit Platform",
+                "emailAddress": os.environ.get("SMTP_FROM", "admin@localhost"),
+            }
+        },
+    }
