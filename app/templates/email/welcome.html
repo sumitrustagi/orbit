@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      background: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                   Helvetica, Arial, sans-serif;
+      color: #1e293b;
+      padding: 2rem 1rem;
+    }
+    .wrapper   { max-width: 580px; margin: 0 auto; }
+    .card      { background: #fff; border-radius: 12px; overflow: hidden;
+                 box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
+    .header    { background: {{ primary_color }}; padding: 2.5rem 2rem 2rem;
+                 text-align: center; color: #fff; }
+    .logo-text { font-size: 1.5rem; font-weight: 900; }
+    .logo-text span { color: {{ accent_color }}; }
+    .hero-icon { font-size: 3rem; margin: 1rem 0 0.5rem; }
+    .header h2 { font-size: 1.3rem; font-weight: 800; margin-top: 0.5rem; }
+    .header p  { opacity: 0.8; font-size: 0.9rem; margin-top: 0.25rem; }
+    .body      { padding: 2rem; }
+    .body p    { line-height: 1.7; color: #334155; margin-bottom: 1rem; }
+
+    /* Calling Details Card */
+    .details-card {
+      background: linear-gradient(135deg, {{ primary_color }}, {{ accent_color }});
+      border-radius: 10px;
+      padding: 1.5rem;
+      color: #fff;
+      margin: 1.5rem 0;
+    }
+    .details-card h3 {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      opacity: 0.75;
+      margin-bottom: 1rem;
+    }
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.15);
+    }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-label { font-size: 0.8rem; opacity: 0.8; }
+    .detail-value { font-size: 1rem; font-weight: 700;
+                    font-family: 'Courier New', monospace; }
+
+    /* Steps */
+    .steps { margin: 1.5rem 0; }
+    .step  {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      align-items: flex-start;
+    }
+    .step-num {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: {{ primary_color }};
+      color: #fff; font-weight: 800; font-size: 0.8rem;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 2px;
+    }
+    .step-text { font-size: 0.875rem; color: #334155; line-height: 1.6; }
+    .step-text strong { color: #1e293b; }
+
+    .btn-wrap  { text-align: center; margin: 1.5rem 0; }
+    .btn       {
+      display: inline-block;
+      padding: 0.875rem 2.5rem;
+      background: {{ primary_color }};
+      color: #fff !important;
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: 700;
+    }
+    .divider   { height: 1px; background: #e2e8f0; margin: 1.5rem 0; }
+    .footer    {
+      text-align: center; padding: 1.25rem 2rem;
+      background: #f8fafc; font-size: 0.75rem;
+      color: #94a3b8; line-height: 1.6;
+    }
+    .footer a  { color: {{ accent_color }}; text-decoration: none; }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="card">
+
+    <!-- Header -->
+    <div class="header">
+      {% if logo_path %}
+        <img src="https://{{ server_fqdn }}/static/uploads/{{ logo_path }}"
+             alt="{{ app_name }}"
+             style="max-height:48px;max-width:160px;object-fit:contain;
+                    display:block;margin:0 auto 1rem;"/>
+      {% else %}
+        <div class="logo-text">⬡ Orb<span>it</span></div>
+      {% endif %}
+      <div class="hero-icon">📞</div>
+      <h2>Your Calling Details Are Ready</h2>
+      <p>Welcome to {{ app_name }}, {{ user.first_name or user.username }}!</p>
+    </div>
+
+    <!-- Body -->
+    <div class="body">
+      <p>
+        Your Webex Calling account has been provisioned and is ready to use.
+        Below are your assigned calling details — please save them for reference.
+      </p>
+
+      <!-- Calling details card -->
+      <div class="details-card">
+        <h3>Your Calling Details</h3>
+        {% if did %}
+        <div class="detail-row">
+          <span class="detail-label">Direct Inward Dial (DID)</span>
+          <span class="detail-value">{{ did }}</span>
+        </div>
+        {% endif %}
+        {% if extension %}
+        <div class="detail-row">
+          <span class="detail-label">Extension</span>
+          <span class="detail-value">{{ extension }}</span>
+        </div>
+        {% endif %}
+        <div class="detail-row">
+          <span class="detail-label">Account Email</span>
+          <span class="detail-value" style="font-size:0.875rem;font-family:inherit;">
+            {{ user.email }}
+          </span>
+        </div>
+      </div>
+
+      <!-- Getting started steps -->
+      <p><strong>Getting started:</strong></p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-text">
+            <strong>Log in to the {{ app_name }} portal</strong><br/>
+            Visit <a href="{{ login_url }}" style="color:{{ accent_color }};">{{ login_url }}</a>
+            to access your self-service portal where you can manage call forwarding,
+            voicemail and your device.
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-text">
+            <strong>Install Webex</strong><br/>
+            Download the Webex app on your
+            <a href="https://www.webex.com/downloads.html"
+               style="color:{{ accent_color }};">desktop or mobile device</a>
+            and sign in with your company email address.
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-text">
+            <strong>Make a test call</strong><br/>
+            Dial your extension from another phone or use the Webex app
+            to confirm your line is active.
+          </div>
+        </div>
+      </div>
+
+      <div class="btn-wrap">
+        <a href="{{ login_url }}" class="btn">Go to My Portal</a>
+      </div>
+
+      <div class="divider"></div>
+      <p style="font-size:0.8rem;color:#64748b;">
+        Need help? Contact your IT helpdesk or reply to your original
+        service request ticket.
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>
+        <strong>{{ app_name }}</strong>
+        {% if company_name %}— {{ company_name }}{% endif %}<br/>
+        <a href="https://{{ server_fqdn }}">{{ server_fqdn }}</a>
+      </p>
+      <p style="margin-top:0.5rem;">
+        This is an automated message. Please do not reply to this email.
+      </p>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>
