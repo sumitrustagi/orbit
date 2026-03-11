@@ -1,0 +1,357 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}Audit Export & Integrity{% endblock %}
+{% block page_title %}Export & Integrity Verification{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">
+  <a href="{{ url_for('audit.list_logs') }}" class="text-muted text-decoration-none">
+    Audit Log
+  </a> / Export & Integrity
+</div>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  .export-card { border-radius: 10px; border: 1px solid #e2e8f0;
+                 background: #fff; padding: 1.5rem; }
+  .export-icon { font-size: 2rem; }
+  .integrity-result {
+    border-radius: 8px; padding: 1rem 1.25rem;
+    display: none;
+  }
+  .integrity-result.ok     { background: #f0fdf4; border: 1px solid #86efac; }
+  .integrity-result.broken { background: #fef2f2; border: 1px solid #fca5a5; }
+  .stat-pill { display:inline-block; padding:0.2rem 0.6rem; border-radius:999px;
+               font-size:0.75rem; font-weight:600; }
+  .corrupted-row { background:#fef2f2; font-size:0.78rem; font-family:monospace; }
+</style>
+{% endblock %}
+
+
+{% block content %}
+
+<div class="row g-4">
+
+  <!-- ── Export column ── -->
+  <div class="col-lg-7">
+    <h6 class="fw-bold text-muted text-uppercase mb-3"
+        style="font-size:0.72rem;letter-spacing:0.1em;">
+      Export Audit Log
+    </h6>
+
+    <!-- Date range filter for export -->
+    <div class="orbit-card mb-3 p-3">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">From Date</label>
+          <input type="date" id="exportFrom" class="form-control form-control-sm"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">To Date</label>
+          <input type="date" id="exportTo" class="form-control form-control-sm"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">Action Filter</label>
+          <select id="exportAction" class="form-select form-select-sm">
+            <option value="">All Actions</option>
+            {% for val, label in [
+              ('LOGIN','Login'), ('LOGIN_FAILED','Failed Login'),
+              ('CREATE','Create'), ('UPDATE','Update'), ('DELETE','Delete'),
+              ('DID_ASSIGNED','DID Assigned'), ('SNOW_REQUEST_COMPLETED','SNOW Completed'),
+            ] %}
+            <option value="{{ val }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export options -->
+    <div class="row g-3 mb-4">
+      <!-- CSV -->
+      <div class="col-md-6">
+        <div class="export-card h-100">
+          <div class="export-icon mb-2">📊</div>
+          <h6 class="fw-bold mb-1">CSV Export</h6>
+          <p class="text-muted small mb-3">
+            Spreadsheet-compatible. Opens directly in Excel or Google Sheets.
+            Includes all metadata columns and the SHA-256 chain hash.
+          </p>
+          <div class="d-flex gap-2">
+            <button onclick="doExport('csv')" class="btn btn-success btn-sm flex-grow-1">
+              <i class="bi bi-filetype-csv me-1"></i>Download CSV
+            </button>
+          </div>
+        </div>
+      </div>
+      <!-- JSON -->
+      <div class="col-md-6">
+        <div class="export-card h-100">
+          <div class="export-icon mb-2">📋</div>
+          <h6 class="fw-bold mb-1">JSON Export</h6>
+          <p class="text-muted small mb-3">
+            Full fidelity including nested diff payloads (before/after fields).
+            Suitable for SIEM ingestion, archiving or external analysis.
+          </p>
+          <div class="d-flex gap-2">
+            <button onclick="doExport('json')" class="btn btn-info btn-sm flex-grow-1 text-white">
+              <i class="bi bi-filetype-json me-1"></i>Download JSON
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity summary -->
+    <div class="orbit-card p-3">
+      <div class="fw-semibold mb-3">
+        <i class="bi bi-bar-chart-line me-2 text-primary"></i>
+        Activity Summary (Last 30 days)
+      </div>
+      <div class="row g-2 text-center">
+        {% set summary = [
+          (stats.total,          "Total Events", "primary"),
+          (stats.logins,         "Logins",       "success"),
+          (stats.failures,       "Failures",     "danger"),
+          (stats.login_failures, "Failed Logins","warning"),
+          (stats.config_changes, "Config Changes","info"),
+          (stats.unique_users,   "Active Users", "secondary"),
+        ] %}
+        {% for val, label, color in summary %}
+        <div class="col-4">
+          <div class="p-2 rounded bg-{{ color }}-subtle">
+            <div class="fw-bold fs-5 text-{{ color }}">{{ val }}</div>
+            <div class="text-muted" style="font-size:0.7rem;">{{ label }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Integrity column ── -->
+  <div class="col-lg-5">
+    <h6 class="fw-bold text-muted text-uppercase mb-3"
+        style="font-size:0.72rem;letter-spacing:0.1em;">
+      Chain Integrity Verification
+    </h6>
+
+    <div class="orbit-card p-4 mb-3">
+      <div class="text-center mb-3">
+        <i class="bi bi-shield-lock fs-1 text-primary"></i>
+        <h6 class="fw-bold mt-2 mb-1">SHA-256 Hash Chain</h6>
+        <p class="text-muted small">
+          Each audit entry is chained to the previous entry's hash.
+          Run the verifier to detect any row modification or deletion
+          outside the application.
+        </p>
+      </div>
+
+      <!-- Options -->
+      <div class="row g-2 mb-3">
+        <div class="col-6">
+          <label class="form-label small fw-semibold">Check Limit</label>
+          <select id="verifyLimit" class="form-select form-select-sm">
+            <option value="1000">Last 1,000 rows</option>
+            <option value="5000" selected>Last 5,000 rows</option>
+            <option value="10000">Last 10,000 rows</option>
+            <option value="50000">All rows (slow)</option>
+          </select>
+        </div>
+        <div class="col-6">
+          <label class="form-label small fw-semibold">Start Offset</label>
+          <input type="number" id="verifyOffset" value="0" min="0"
+                 class="form-control form-control-sm" placeholder="0"/>
+        </div>
+      </div>
+
+      <button id="verifyBtn" onclick="runVerify()"
+              class="btn btn-primary w-100">
+        <i class="bi bi-shield-check me-2"></i>Run Integrity Check
+      </button>
+
+      <!-- Progress -->
+      <div id="verifyProgress" class="mt-3 text-center d-none">
+        <div class="spinner-border text-primary spinner-border-sm me-2"></div>
+        <span class="text-muted small">Verifying chain…</span>
+        <div class="progress mt-2" style="height:3px;">
+          <div class="progress-bar progress-bar-striped progress-bar-animated w-100"></div>
+        </div>
+      </div>
+
+      <!-- Result -->
+      <div id="verifyResult" class="integrity-result mt-3">
+        <div id="verifyIcon" class="fs-3 mb-2 text-center"></div>
+        <p id="verifyMsg" class="fw-semibold text-center mb-2"></p>
+        <div id="verifyStats" class="text-center mb-3"
+             style="font-size:0.8rem;color:#64748b;"></div>
+
+        <!-- Corrupted rows table (shown only on failure) -->
+        <div id="corruptedSection" class="d-none">
+          <div class="fw-bold text-danger mb-2" style="font-size:0.85rem;">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+            Corrupted Entries
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm mb-0" style="font-size:0.75rem;">
+              <thead class="table-light">
+                <tr>
+                  <th>ID</th>
+                  <th>Timestamp</th>
+                  <th>Action</th>
+                  <th>User</th>
+                </tr>
+              </thead>
+              <tbody id="corruptedTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top actors -->
+    {% if top_actors %}
+    <div class="orbit-card">
+      <div class="orbit-card-header">
+        <i class="bi bi-person-badge text-info"></i>
+        <span class="fw-semibold">Most Active Users (30d)</span>
+      </div>
+      <div class="p-0">
+        <table class="table orbit-table mb-0">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Role</th>
+              <th class="text-end">Events</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for actor in top_actors %}
+            <tr>
+              <td>
+                <a href="{{ url_for('audit.list_logs', username=actor.username) }}"
+                   class="text-decoration-none fw-semibold">
+                  {{ actor.username }}
+                </a>
+              </td>
+              <td>
+                <span class="text-muted" style="font-size:0.75rem;">
+                  {{ actor.role.replace('_',' ') | title if actor.role else '—' }}
+                </span>
+              </td>
+              <td class="text-end">
+                <span class="badge bg-primary-subtle text-primary">
+                  {{ actor.count }}
+                </span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+function buildExportUrl(format) {
+  const from   = document.getElementById('exportFrom').value;
+  const to     = document.getElementById('exportTo').value;
+  const action = document.getElementById('exportAction').value;
+  const params = new URLSearchParams();
+  if (from)   params.set('date_from', from);
+  if (to)     params.set('date_to',   to);
+  if (action) params.set('action',    action);
+  return `/admin/audit/export/${format}?${params.toString()}`;
+}
+
+function doExport(format) {
+  window.location.href = buildExportUrl(format);
+}
+
+async function runVerify() {
+  const btn      = document.getElementById('verifyBtn');
+  const progress = document.getElementById('verifyProgress');
+  const result   = document.getElementById('verifyResult');
+  const limit    = parseInt(document.getElementById('verifyLimit').value);
+  const offset   = parseInt(document.getElementById('verifyOffset').value || 0);
+
+  btn.disabled = true;
+  progress.classList.remove('d-none');
+  result.style.display = 'none';
+
+  try {
+    const csrf = document.querySelector('[name=csrf_token]')?.value || '';
+    const resp = await fetch('/admin/audit/api/verify-integrity', {
+      method:  'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken':  csrf,
+      },
+      body: JSON.stringify({ limit, offset }),
+    });
+    const json = await resp.json();
+
+    progress.classList.add('d-none');
+    result.style.display = 'block';
+
+    const iconEl  = document.getElementById('verifyIcon');
+    const msgEl   = document.getElementById('verifyMsg');
+    const statsEl = document.getElementById('verifyStats');
+    const corrSec = document.getElementById('corruptedSection');
+    const corrBody = document.getElementById('corruptedTableBody');
+
+    if (json.ok) {
+      result.className = 'integrity-result ok';
+      iconEl.textContent = '✅';
+      iconEl.className   = 'fs-3 mb-2 text-center';
+      msgEl.className    = 'fw-semibold text-center text-success mb-2';
+    } else {
+      result.className = 'integrity-result broken';
+      iconEl.textContent = '🚨';
+      msgEl.className    = 'fw-semibold text-center text-danger mb-2';
+    }
+
+    msgEl.textContent   = json.message;
+    statsEl.textContent =
+      `Checked: ${json.checked} rows · Offset: ${json.offset}`;
+
+    if (json.corrupted && json.corrupted.length > 0) {
+      corrSec.classList.remove('d-none');
+      corrBody.innerHTML = '';
+      json.corrupted.slice(0, 20).forEach(row => {
+        const tr = document.createElement('tr');
+        tr.className = 'corrupted-row';
+        tr.innerHTML = `
+          <td><a href="/admin/audit/${row.id}">#${row.id}</a></td>
+          <td>${row.timestamp.substring(0,19).replace('T',' ')}</td>
+          <td><code>${row.action}</code></td>
+          <td>${row.username}</td>`;
+        corrBody.appendChild(tr);
+      });
+      if (json.corrupted.length > 20) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td colspan="4" class="text-muted text-center">
+          … and ${json.corrupted.length - 20} more</td>`;
+        corrBody.appendChild(tr);
+      }
+    } else {
+      corrSec.classList.add('d-none');
+    }
+
+  } catch(e) {
+    progress.classList.add('d-none');
+    alert('Verification request failed: ' + e.message);
+  }
+
+  btn.disabled = false;
+}
+</script>
+{% endblock %}
