@@ -1,0 +1,344 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}{{ req.snow_number }}{% endblock %}
+{% block page_title %}{{ req.snow_number }}{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">
+  <a href="{{ url_for('snow.requests_list') }}" class="text-muted text-decoration-none">
+    SNOW Requests
+  </a> / {{ req.snow_number }}
+</div>
+{% endblock %}
+
+{% block topbar_actions %}
+{% if req.status.value not in ['fulfilled'] %}
+<form action="{{ url_for('snow.request_retry', req_id=req.id) }}"
+      method="POST" class="d-inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+  <button type="submit" class="btn btn-sm btn-warning me-1">
+    <i class="bi bi-arrow-repeat me-1"></i>Retry Fulfillment
+  </button>
+</form>
+{% endif %}
+<a href="{{ url_for('snow.requests_list') }}"
+   class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-arrow-left me-1"></i>Back
+</a>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  .log-entry {
+    display: flex; gap: 0.75rem; align-items: flex-start;
+    padding: 0.5rem 0; border-bottom: 1px solid #f1f5f9;
+    font-size: 0.82rem;
+  }
+  .log-entry:last-child { border-bottom: none; }
+  .log-time { font-family:'Courier New',monospace; font-size:0.7rem;
+              color:#94a3b8; white-space:nowrap; min-width:130px; }
+  .log-msg  { color:#334155; line-height:1.5; }
+  .log-msg.error   { color:#991b1b; }
+  .log-msg.success { color:#166534; }
+
+  .detail-row { display:grid; grid-template-columns:160px 1fr; }
+  .dk { padding:0.55rem 1rem; background:#f8fafc; font-size:0.72rem;
+        font-weight:700; text-transform:uppercase; letter-spacing:0.07em;
+        color:#64748b; border-bottom:1px solid #f1f5f9; }
+  .dv { padding:0.55rem 1rem; font-size:0.875rem; color:#1e293b;
+        border-bottom:1px solid #f1f5f9; }
+  .mono { font-family:'Courier New',monospace; }
+
+  .status-pill { font-size:0.75rem; font-weight:700; border-radius:5px;
+                 padding:0.25rem 0.65rem; }
+  .sp-pending    { background:#fff7ed; color:#9a3412; }
+  .sp-processing { background:#dbeafe; color:#1e40af; }
+  .sp-fulfilled  { background:#dcfce7; color:#166534; }
+  .sp-failed     { background:#fee2e2; color:#991b1b; }
+
+  /* Live polling spinner */
+  .live-dot { width:8px; height:8px; border-radius:50%; background:#3b82f6;
+              display:inline-block; animation:pulse 1.2s ease infinite; }
+  @keyframes pulse {
+    0%,100% { opacity:1; transform:scale(1); }
+    50%      { opacity:0.4; transform:scale(0.7); }
+  }
+</style>
+{% endblock %}
+
+
+{% block content %}
+
+<div class="row g-3">
+
+  <!-- ── Left column: Request details ── -->
+  <div class="col-lg-7">
+
+    <!-- Status card -->
+    <div class="orbit-card mb-3">
+      <div class="orbit-card-header">
+        <i class="bi bi-ticket text-primary"></i>
+        <span class="fw-semibold">Request Details</span>
+        <span class="ms-2 status-pill sp-{{ req.status.value }}" id="statusBadge">
+          {% if req.status.value == 'processing' %}
+          <span class="spinner-border spinner-border-sm me-1"
+                style="width:9px;height:9px;border-width:1.5px;"></span>
+          {% endif %}
+          {{ req.status.value | title }}
+        </span>
+        {% if req.status.value == 'processing' %}
+        <span class="ms-2 text-muted" style="font-size:0.72rem;">
+          <span class="live-dot me-1"></span>Live
+        </span>
+        {% endif %}
+      </div>
+
+      <div>
+        {% for dk, dv in [
+          ("SNOW Number",      req.snow_number),
+          ("SNOW SysID",       req.snow_sys_id or '—'),
+          ("Requester Name",   req.requester_name or '—'),
+          ("Requester Email",  req.requester_email),
+          ("Description",      req.short_description or '—'),
+          ("Received At",      req.received_at.strftime('%d %b %Y %H:%M:%S UTC') if req.received_at else '—'),
+          ("Fulfilled At",     req.fulfilled_at.strftime('%d %b %Y %H:%M:%S UTC') if req.fulfilled_at else '—'),
+          ("Retry Count",      req.retry_count or 0),
+          ("Celery Task",      (req.celery_task_id[:16] + '…') if req.celery_task_id else '—'),
+        ] %}
+        <div class="detail-row">
+          <div class="dk">{{ dk }}</div>
+          <div class="dv {% if loop.index in [1,2,10] %}mono{% endif %}">
+            {{ dv }}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Assigned DID card (shown when fulfilled) -->
+    {% if req.assigned_did %}
+    <div class="orbit-card mb-3" style="border-color:#86efac;">
+      <div class="orbit-card-header bg-success-subtle">
+        <i class="bi bi-check-circle-fill text-success"></i>
+        <span class="fw-semibold text-success">Provisioned Successfully</span>
+      </div>
+      <div class="p-4 text-center">
+        <div class="text-muted small mb-1">Assigned Direct Inward Dial</div>
+        <div class="mono fw-bold text-success" style="font-size:1.8rem;">
+          {{ req.assigned_did }}
+        </div>
+        {% if req.assigned_extension %}
+        <div class="text-muted mt-1">Extension: <strong>{{ req.assigned_extension }}</strong></div>
+        {% endif %}
+        <div class="text-muted small mt-2">{{ req.requester_email }}</div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Failure card -->
+    {% if req.status.value == 'failed' and req.failure_reason %}
+    <div class="orbit-card mb-3" style="border-color:#fca5a5;">
+      <div class="orbit-card-header bg-danger-subtle">
+        <i class="bi bi-x-circle-fill text-danger"></i>
+        <span class="fw-semibold text-danger">Fulfillment Failed</span>
+      </div>
+      <div class="p-3">
+        <p class="text-danger mb-2">{{ req.failure_reason }}</p>
+        <div class="d-flex gap-2">
+          <form action="{{ url_for('snow.request_retry', req_id=req.id) }}" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <button type="submit" class="btn btn-warning btn-sm">
+              <i class="bi bi-arrow-repeat me-1"></i>Retry Now
+            </button>
+          </form>
+          <button class="btn btn-outline-secondary btn-sm"
+                  data-bs-toggle="modal" data-bs-target="#markFailedModal">
+            Close as Failed
+          </button>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Manual fulfillment card (pending / failed only) -->
+    {% if req.status.value in ['pending', 'failed'] %}
+    <div class="orbit-card">
+      <div class="orbit-card-header">
+        <i class="bi bi-tools text-warning"></i>
+        <span class="fw-semibold">Manual Fulfillment</span>
+      </div>
+      <div class="orbit-card-body">
+        <p class="text-muted small mb-3">
+          Override the automated fulfillment by manually selecting a DID pool
+          and confirming the target user email.
+        </p>
+        <form action="{{ url_for('snow.mark_fulfilled', req_id=req.id) }}"
+              method="POST">
+          {{ form.hidden_tag() }}
+          {{ form.snow_request_id(type="hidden") }}
+
+          <div class="mb-3">
+            {{ form.user_email.label(class="form-label fw-semibold small") }}
+            {{ form.user_email(class="form-control form-control-sm") }}
+          </div>
+          <div class="mb-3">
+            {{ form.did_pool_id.label(class="form-label fw-semibold small") }}
+            {{ form.did_pool_id(class="form-select form-select-sm") }}
+          </div>
+          <div class="mb-3">
+            {{ form.notes.label(class="form-label fw-semibold small") }}
+            {{ form.notes(class="form-control form-control-sm") }}
+          </div>
+          <button type="submit" class="btn btn-success btn-sm"
+                  onclick="return confirm('Manually fulfill {{ req.snow_number }}?');">
+            <i class="bi bi-check-circle me-1"></i>Manually Fulfill
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+  <!-- ── Right column: Fulfillment log ── -->
+  <div class="col-lg-5">
+    <div class="orbit-card">
+      <div class="orbit-card-header">
+        <i class="bi bi-terminal text-primary"></i>
+        <span class="fw-semibold">Fulfillment Log</span>
+        {% if req.status.value == 'processing' %}
+        <button class="btn btn-sm btn-link ms-auto p-0" id="stopPollBtn"
+                onclick="stopPoll()" title="Stop live updates">
+          <i class="bi bi-stop-circle text-warning"></i>
+        </button>
+        {% endif %}
+      </div>
+
+      <div class="p-3" id="logContainer" style="max-height:540px;overflow-y:auto;">
+        {% set log = req.fulfillment_log or [] %}
+        {% if log %}
+          {% for entry in log %}
+          <div class="log-entry">
+            <span class="log-time">
+              {{ entry.ts[:19].replace('T',' ') if entry.ts else '—' }}
+            </span>
+            <span class="log-msg
+              {{ 'error'   if '❌' in entry.msg or 'FAILED' in entry.msg
+                 else 'success' if '✅' in entry.msg or 'complete' in entry.msg.lower()
+                 else '' }}">
+              {{ entry.msg }}
+            </span>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="text-center text-muted py-4">
+            <i class="bi bi-hourglass fs-3 opacity-25"></i>
+            <p class="mt-2 mb-0 small">No log entries yet.</p>
+          </div>
+        {% endif %}
+      </div>
+
+    </div><!-- /orbit-card -->
+
+    <!-- Raw payload toggle -->
+    {% if req.raw_payload %}
+    <div class="orbit-card mt-3">
+      <div class="orbit-card-header" style="cursor:pointer;"
+           data-bs-toggle="collapse" data-bs-target="#rawPayload">
+        <i class="bi bi-code-slash text-muted"></i>
+        <span class="fw-semibold text-muted" style="font-size:0.85rem;">
+          Raw Webhook Payload
+        </span>
+        <i class="bi bi-chevron-down ms-auto text-muted" style="font-size:0.7rem;"></i>
+      </div>
+      <div class="collapse" id="rawPayload">
+        <pre class="p-3 mb-0" style="font-size:0.72rem;max-height:300px;
+             overflow-y:auto;background:#f8fafc;color:#334155;">{{ req.raw_payload | tojson(indent=2) }}</pre>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<!-- ── Mark Failed modal ── -->
+<div class="modal fade" id="markFailedModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title fw-bold">Close as Failed</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form action="{{ url_for('snow.mark_failed', req_id=req.id) }}" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <div class="modal-body">
+          <label class="form-label fw-semibold">Reason</label>
+          <textarea name="reason" class="form-control" rows="3"
+                    placeholder="Explain why this request cannot be fulfilled…"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm"
+                  data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger btn-sm">
+            <i class="bi bi-x-circle me-1"></i>Mark as Failed
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+/* ── Live log polling (active while status = processing) ──────────────────── */
+{% if req.status.value == 'processing' %}
+let pollInterval = setInterval(pollStatus, 4000);
+
+async function pollStatus() {
+  try {
+    const resp = await fetch("{{ url_for('snow.api_request_status', req_id=req.id) }}");
+    const data = await resp.json();
+
+    // Update status badge
+    const badge = document.getElementById('statusBadge');
+    if (badge) {
+      badge.className = `ms-2 status-pill sp-${data.status}`;
+      badge.textContent = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+    }
+
+    // Refresh log
+    if (data.log_entries && data.log_entries.length > 0) {
+      const container = document.getElementById('logContainer');
+      container.innerHTML = data.log_entries.map(e => `
+        <div class="log-entry">
+          <span class="log-time">${(e.ts || '').substring(0,19).replace('T',' ')}</span>
+          <span class="log-msg ${
+            e.msg.includes('❌') || e.msg.includes('FAILED') ? 'error' :
+            e.msg.includes('✅') || e.msg.toLowerCase().includes('complete') ? 'success' : ''
+          }">${e.msg}</span>
+        </div>
+      `).join('');
+      container.scrollTop = container.scrollHeight;
+    }
+
+    // Stop polling when terminal state reached
+    if (['fulfilled','failed'].includes(data.status)) {
+      clearInterval(pollInterval);
+      setTimeout(() => location.reload(), 1500);
+    }
+
+  } catch(e) {
+    console.warn('Poll error:', e);
+  }
+}
+
+function stopPoll() {
+  clearInterval(pollInterval);
+  document.getElementById('stopPollBtn')?.remove();
+}
+{% endif %}
+</script>
+{% endblock %}
