@@ -1,0 +1,199 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}DID Pools{% endblock %}
+{% block page_title %}DID Pool Management{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">DID Management / Pools</div>
+{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('did.pool_new') }}" class="btn btn-sm btn-primary">
+  <i class="bi bi-plus-lg me-1"></i>New Pool
+</a>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  .pool-card {
+    background: #fff; border: 1px solid #e2e8f0;
+    border-radius: 12px; padding: 1.25rem;
+    transition: box-shadow 0.2s, border-color 0.2s;
+    height: 100%;
+  }
+  .pool-card:hover {
+    box-shadow: 0 4px 20px rgba(30,64,175,0.08);
+    border-color: #c7d2fe;
+  }
+  .availability-bar { height: 8px; border-radius: 999px;
+                      background: #e2e8f0; overflow: hidden; }
+  .availability-fill { height: 100%; border-radius: 999px;
+                       background: linear-gradient(90deg, #22c55e, #16a34a);
+                       transition: width 0.4s ease; }
+  .availability-fill.warn  { background: linear-gradient(90deg, #eab308, #ca8a04); }
+  .availability-fill.critical { background: linear-gradient(90deg, #ef4444, #dc2626); }
+  .number-range { font-family:'Courier New',monospace; font-size:0.78rem; color:#64748b; }
+  .did-stat { text-align:center; }
+  .did-stat .val { font-size:1.4rem; font-weight:800; line-height:1; }
+  .did-stat .lbl { font-size:0.68rem; text-transform:uppercase;
+                   letter-spacing:0.08em; color:#94a3b8; margin-top:2px; }
+</style>
+{% endblock %}
+
+
+{% block content %}
+
+<!-- ── Header stat bar ── -->
+<div class="row g-3 mb-4">
+  {% for icon, color, value, label in [
+    ("bi-collection", "primary",   total_nums,  "Total Numbers"),
+    ("bi-check-circle","success",  total_avail, "Available"),
+    ("bi-person-check","warning",  total_asgn,  "Assigned"),
+    ("bi-hdd-stack",  "secondary", pools|length, "Pools"),
+  ] %}
+  <div class="col-md-3 col-6">
+    <div class="stat-widget">
+      <div class="stat-icon bg-{{ color }}-subtle text-{{ color }}">
+        <i class="bi {{ icon }}"></i>
+      </div>
+      <div>
+        <div class="stat-value">{{ value }}</div>
+        <div class="stat-label">{{ label }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ── Pools grid ── -->
+{% if pools %}
+<div class="row g-3">
+  {% for pool in pools %}
+  {% set avail_pct = ((pool.available_count / pool.total_count * 100) | int) if pool.total_count else 0 %}
+  {% set bar_class = 'critical' if avail_pct < 10 else ('warn' if avail_pct < 25 else '') %}
+
+  <div class="col-xl-4 col-md-6">
+    <div class="pool-card">
+
+      <!-- Pool header -->
+      <div class="d-flex align-items-start justify-content-between mb-2">
+        <div>
+          <h6 class="fw-bold mb-0">
+            <a href="{{ url_for('did.pool_detail', pool_id=pool.id) }}"
+               class="text-decoration-none text-dark">
+              {{ pool.name }}
+            </a>
+          </h6>
+          {% if pool.location_name %}
+          <div class="text-muted" style="font-size:0.75rem;">
+            <i class="bi bi-geo-alt me-1"></i>{{ pool.location_name }}
+          </div>
+          {% endif %}
+        </div>
+        <!-- Active badge -->
+        {% if pool.is_active %}
+        <span class="badge bg-success-subtle text-success" style="font-size:0.65rem;">
+          Active
+        </span>
+        {% else %}
+        <span class="badge bg-secondary-subtle text-secondary" style="font-size:0.65rem;">
+          Inactive
+        </span>
+        {% endif %}
+      </div>
+
+      <!-- Number range -->
+      <div class="number-range mb-3">
+        {{ pool.range_start }} → {{ pool.range_end }}
+      </div>
+
+      <!-- Availability bar -->
+      <div class="mb-1 d-flex justify-content-between align-items-center"
+           style="font-size:0.72rem;">
+        <span class="text-muted">Availability</span>
+        <span class="fw-semibold
+          {{ 'text-danger' if bar_class == 'critical'
+             else 'text-warning' if bar_class == 'warn'
+             else 'text-success' }}">
+          {{ avail_pct }}% free
+        </span>
+      </div>
+      <div class="availability-bar mb-3">
+        <div class="availability-fill {{ bar_class }}"
+             style="width:{{ avail_pct }}%;"></div>
+      </div>
+
+      <!-- Stats row -->
+      <div class="d-flex justify-content-between mb-3">
+        <div class="did-stat">
+          <div class="val text-success">{{ pool.available_count }}</div>
+          <div class="lbl">Available</div>
+        </div>
+        <div class="did-stat">
+          <div class="val text-warning">{{ pool.assigned_count }}</div>
+          <div class="lbl">Assigned</div>
+        </div>
+        <div class="did-stat">
+          <div class="val text-secondary">{{ pool.total_count }}</div>
+          <div class="lbl">Total</div>
+        </div>
+        <div class="did-stat">
+          <div class="val text-muted" style="font-size:0.9rem;">
+            {% if pool.last_synced_at %}
+              {{ pool.last_synced_at.strftime('%d/%m') }}
+            {% else %}
+              —
+            {% endif %}
+          </div>
+          <div class="lbl">Last Sync</div>
+        </div>
+      </div>
+
+      <!-- Warning if nearly full -->
+      {% if avail_pct < 10 and pool.total_count > 0 %}
+      <div class="alert alert-danger py-1 px-2 mb-2" style="font-size:0.75rem;">
+        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+        Only {{ pool.available_count }} number{{ 's' if pool.available_count != 1 }} remaining!
+      </div>
+      {% endif %}
+
+      <!-- Action buttons -->
+      <div class="d-flex gap-2">
+        <a href="{{ url_for('did.pool_detail', pool_id=pool.id) }}"
+           class="btn btn-sm btn-outline-primary flex-grow-1">
+          <i class="bi bi-eye me-1"></i>View Numbers
+        </a>
+        <form action="{{ url_for('did.pool_sync', pool_id=pool.id) }}"
+              method="POST" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <button type="submit" class="btn btn-sm btn-outline-secondary"
+                  title="Sync with Webex">
+            <i class="bi bi-arrow-repeat"></i>
+          </button>
+        </form>
+        <a href="{{ url_for('did.pool_edit', pool_id=pool.id) }}"
+           class="btn btn-sm btn-outline-secondary" title="Edit Pool">
+          <i class="bi bi-pencil"></i>
+        </a>
+      </div>
+
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<!-- Empty state -->
+<div class="text-center py-5">
+  <i class="bi bi-hash" style="font-size:4rem;color:#e2e8f0;"></i>
+  <h5 class="fw-bold mt-3 text-muted">No DID Pools Yet</h5>
+  <p class="text-muted mb-4">
+    Create your first DID pool to start managing Webex Calling numbers.
+  </p>
+  <a href="{{ url_for('did.pool_new') }}" class="btn btn-primary px-4">
+    <i class="bi bi-plus-lg me-2"></i>Create First Pool
+  </a>
+</div>
+{% endif %}
+
+{% endblock %}
