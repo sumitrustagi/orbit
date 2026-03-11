@@ -1,0 +1,480 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}{{ pool.name }}{% endblock %}
+{% block page_title %}{{ pool.name }}{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">
+  <a href="{{ url_for('did.pools_list') }}" class="text-muted text-decoration-none">
+    DID Pools
+  </a> / {{ pool.name }}
+</div>
+{% endblock %}
+
+{% block topbar_actions %}
+<form action="{{ url_for('did.pool_sync', pool_id=pool.id) }}"
+      method="POST" class="d-inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+  <button type="submit" class="btn btn-sm btn-outline-secondary me-1">
+    <i class="bi bi-arrow-repeat me-1"></i>Sync with Webex
+  </button>
+</form>
+<a href="{{ url_for('did.pool_edit', pool_id=pool.id) }}"
+   class="btn btn-sm btn-outline-secondary me-1">
+  <i class="bi bi-pencil me-1"></i>Edit Pool
+</a>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  .avail-bar  { height:6px; border-radius:999px; background:#e2e8f0; overflow:hidden; }
+  .avail-fill { height:100%; border-radius:999px;
+                background:linear-gradient(90deg,#22c55e,#16a34a); }
+  .status-pill {
+    font-size:0.68rem; font-weight:700; border-radius:4px;
+    padding:0.15rem 0.5rem; display:inline-block;
+  }
+  .sp-available { background:#dcfce7; color:#166534; }
+  .sp-assigned  { background:#fef9c3; color:#854d0e; }
+  .sp-reserved  { background:#dbeafe; color:#1e40af; }
+  .sp-porting   { background:#ede9fe; color:#5b21b6; }
+  .mono { font-family:'Courier New',monospace; }
+  /* Assign modal */
+  .entity-result {
+    border:1px solid #e2e8f0; border-radius:6px; background:#fff;
+    position:absolute; width:100%; z-index:100; max-height:220px;
+    overflow-y:auto; box-shadow:0 4px 16px rgba(0,0,0,0.1);
+  }
+  .entity-item {
+    padding:0.5rem 0.875rem; cursor:pointer; font-size:0.82rem;
+  }
+  .entity-item:hover { background:#f1f5f9; }
+  .spin { animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+</style>
+{% endblock %}
+
+
+{% block content %}
+
+<!-- ── Pool Header Stats ── -->
+<div class="row g-3 mb-4">
+  {% set avail_pct = ((pool.available_count / pool.total_count * 100)|int) if pool.total_count else 0 %}
+
+  <div class="col-lg-5">
+    <div class="orbit-card p-3 h-100">
+      <div class="d-flex gap-3 mb-3">
+        {% for val, label, color in [
+          (pool.available_count, "Available", "success"),
+          (pool.assigned_count,  "Assigned",  "warning"),
+          (pool.total_count,     "Total",     "secondary"),
+        ] %}
+        <div class="text-center flex-grow-1">
+          <div class="fw-800 fs-4 text-{{ color }}">{{ val }}</div>
+          <div class="text-muted" style="font-size:0.72rem;">{{ label }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="avail-bar">
+        <div class="avail-fill" style="width:{{ avail_pct }}%;"></div>
+      </div>
+      <div class="d-flex justify-content-between mt-1"
+           style="font-size:0.7rem;color:#64748b;">
+        <span>{{ avail_pct }}% available</span>
+        {% if pool.last_synced_at %}
+        <span>Last sync: {{ pool.last_synced_at.strftime('%d %b %Y %H:%M UTC') }}</span>
+        {% else %}
+        <span class="text-warning">Never synced</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="orbit-card p-3 h-100">
+      <div class="row g-2" style="font-size:0.875rem;">
+        <div class="col-4 text-muted fw-semibold">Location</div>
+        <div class="col-8">{{ pool.location_name or '—' }}</div>
+        <div class="col-4 text-muted fw-semibold">Range</div>
+        <div class="col-8 mono">
+          {{ pool.range_start }} → {{ pool.range_end }}
+        </div>
+        {% if pool.description %}
+        <div class="col-4 text-muted fw-semibold">Notes</div>
+        <div class="col-8">{{ pool.description }}</div>
+        {% endif %}
+        <div class="col-4 text-muted fw-semibold">Status</div>
+        <div class="col-8">
+          {% if pool.is_active %}
+          <span class="badge bg-success-subtle text-success">Active</span>
+          {% else %}
+          <span class="badge bg-secondary-subtle text-secondary">Inactive</span>
+          {% endif %}
+        </div>
+        <div class="col-4 text-muted fw-semibold">Created</div>
+        <div class="col-8">{{ pool.created_at.strftime('%d %b %Y') }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Filter row ── -->
+<div class="orbit-card mb-3">
+  <div class="orbit-card-body">
+    <form method="GET" class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label small fw-semibold">Search Number / Assignee</label>
+        <input type="text" name="search" value="{{ search }}"
+               class="form-control form-control-sm"
+               placeholder="+32… or name or email"/>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small fw-semibold">Status</label>
+        <select name="status" class="form-select form-select-sm">
+          <option value="">All Statuses</option>
+          {% for st in ['available','assigned','reserved','porting'] %}
+          <option value="{{ st }}" {{ 'selected' if status_filter == st }}>
+            {{ st | title }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">Per Page</label>
+        <select name="per_page" class="form-select form-select-sm">
+          {% for n in [25, 50, 100, 250] %}
+          <option value="{{ n }}" {{ 'selected' if per_page == n }}>{{ n }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3 d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+          <i class="bi bi-funnel-fill me-1"></i>Filter
+        </button>
+        {% if search or status_filter %}
+        <a href="{{ url_for('did.pool_detail', pool_id=pool.id) }}"
+           class="btn btn-outline-secondary btn-sm">Clear</a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Numbers table ── -->
+<div class="orbit-card">
+  <div class="orbit-card-header">
+    <i class="bi bi-hash text-primary"></i>
+    <span class="fw-semibold">Numbers</span>
+    <span class="text-muted ms-2" style="font-size:0.78rem;">
+      {{ pagination.total }} matching
+    </span>
+  </div>
+
+  {% if numbers %}
+  <div class="table-responsive">
+    <table class="table orbit-table mb-0" id="numbersTable">
+      <thead>
+        <tr>
+          <th>DID Number</th>
+          <th>Status</th>
+          <th>Assigned To</th>
+          <th>Type</th>
+          <th>Assigned At</th>
+          <th>Notes</th>
+          <th style="width:100px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for num in numbers %}
+        <tr id="row-{{ num.number | replace('+','') }}">
+          <td class="mono fw-bold">{{ num.number }}</td>
+
+          <!-- Status pill -->
+          <td>
+            {% set sp_map = {
+              'available': 'sp-available',
+              'assigned':  'sp-assigned',
+              'reserved':  'sp-reserved',
+              'porting':   'sp-porting',
+            } %}
+            <span class="status-pill {{ sp_map.get(num.status.value, '') }}">
+              {{ num.status.value | title }}
+            </span>
+          </td>
+
+          <!-- Assigned to -->
+          <td>
+            {% if num.assigned_to_name %}
+            <div style="font-size:0.85rem;font-weight:600;">
+              {{ num.assigned_to_name }}
+            </div>
+            {% if num.assigned_to_email %}
+            <div class="text-muted" style="font-size:0.72rem;">
+              {{ num.assigned_to_email }}
+            </div>
+            {% endif %}
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+
+          <!-- Assignment type -->
+          <td>
+            <span class="text-muted" style="font-size:0.78rem;">
+              {{ num.assignment_type.value.replace('_',' ') | title
+                 if num.assignment_type and num.assignment_type.value != 'unassigned'
+                 else '—' }}
+            </span>
+          </td>
+
+          <!-- Assigned at -->
+          <td class="text-muted" style="font-size:0.78rem;white-space:nowrap;">
+            {{ num.assigned_at.strftime('%d %b %Y') if num.assigned_at else '—' }}
+          </td>
+
+          <!-- Notes -->
+          <td class="text-muted" style="font-size:0.75rem;max-width:150px;">
+            {{ num.notes | truncate(40) if num.notes else '—' }}
+          </td>
+
+          <!-- Actions -->
+          <td>
+            {% if num.status.value == 'available' %}
+            <button class="btn btn-sm btn-success py-0"
+                    @click.prevent="openAssign('{{ num.number }}')"
+                    x-data>
+              <i class="bi bi-plus-lg me-1"></i>Assign
+            </button>
+
+            {% elif num.status.value == 'assigned' %}
+            <button class="btn btn-sm btn-outline-danger py-0"
+                    onclick="releaseNumber('{{ num.number }}')"
+                    data-bs-toggle="tooltip"
+                    title="Release {{ num.number }}">
+              <i class="bi bi-x-lg me-1"></i>Release
+            </button>
+            {% else %}
+            <span class="text-muted" style="font-size:0.75rem;">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if pagination.pages > 1 %}
+  <div class="d-flex justify-content-between align-items-center p-3 border-top"
+       style="font-size:0.82rem;">
+    <span class="text-muted">
+      {{ ((page-1)*per_page)+1 }}–{{ [page*per_page, pagination.total]|min }}
+      of {{ pagination.total }}
+    </span>
+    <nav>
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {{ 'disabled' if not pagination.has_prev }}">
+          <a class="page-link"
+             href="{{ url_for('did.pool_detail', pool_id=pool.id,
+                              page=page-1, status=status_filter, search=search, per_page=per_page) }}">‹</a>
+        </li>
+        {% for p in pagination.iter_pages(left_edge=1, right_edge=1,
+                                           left_current=2, right_current=2) %}
+          {% if p %}
+          <li class="page-item {{ 'active' if p == page }}">
+            <a class="page-link"
+               href="{{ url_for('did.pool_detail', pool_id=pool.id,
+                                page=p, status=status_filter, search=search, per_page=per_page) }}">
+              {{ p }}
+            </a>
+          </li>
+          {% else %}
+          <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {{ 'disabled' if not pagination.has_next }}">
+          <a class="page-link"
+             href="{{ url_for('did.pool_detail', pool_id=pool.id,
+                              page=page+1, status=status_filter, search=search, per_page=per_page) }}">›</a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="text-center py-5">
+    <i class="bi bi-hash fs-1 text-muted opacity-25"></i>
+    <p class="text-muted mt-3 mb-0">No numbers match the current filter.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Delete pool (danger zone) ── -->
+<div class="orbit-card mt-4 border-danger" style="border-color:#fca5a5!important;">
+  <div class="orbit-card-header bg-danger-subtle">
+    <i class="bi bi-exclamation-triangle-fill text-danger"></i>
+    <span class="fw-semibold text-danger">Danger Zone</span>
+  </div>
+  <div class="orbit-card-body">
+    <div class="d-flex justify-content-between align-items-center">
+      <div>
+        <div class="fw-semibold">Delete this pool</div>
+        <div class="text-muted small">
+          Permanently removes the pool and all {{ pool.total_count }} number records.
+          {% if pool.assigned_count > 0 %}
+          <strong class="text-danger">
+            {{ pool.assigned_count }} number{{ 's' if pool.assigned_count != 1 }}
+            must be released first.
+          </strong>
+          {% endif %}
+        </div>
+      </div>
+      <form action="{{ url_for('did.pool_delete', pool_id=pool.id) }}"
+            method="POST"
+            onsubmit="return confirm('Permanently delete pool \'{{ pool.name }}\' and all its numbers? This cannot be undone.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" class="btn btn-danger btn-sm"
+                {{ 'disabled' if pool.assigned_count > 0 }}>
+          <i class="bi bi-trash me-1"></i>Delete Pool
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ── Assign Modal ── -->
+{% include "did/_assign_modal.html" %}
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+/* ── Alpine-powered assign modal ─────────────────────────────────────────── */
+function assignModal() {
+  return {
+    open:       false,
+    number:     '',
+    type:       'user',
+    query:      '',
+    results:    [],
+    selected:   null,
+    notes:      '',
+    searching:  false,
+    saving:     false,
+    message:    '',
+    messageOk:  true,
+    timer:      null,
+
+    openFor(number) {
+      this.number   = number;
+      this.query    = '';
+      this.results  = [];
+      this.selected = null;
+      this.notes    = '';
+      this.message  = '';
+      this.open     = true;
+    },
+
+    onTypeChange() {
+      this.results  = [];
+      this.selected = null;
+      this.query    = '';
+    },
+
+    onQueryInput() {
+      clearTimeout(this.timer);
+      if (this.query.length < 2) { this.results = []; return; }
+      this.timer = setTimeout(() => this.searchEntity(), 400);
+    },
+
+    async searchEntity() {
+      this.searching = true;
+      try {
+        const resp    = await fetch(
+          `/admin/did/api/search-entity?q=${encodeURIComponent(this.query)}&type=${this.type}`
+        );
+        this.results  = await resp.json();
+      } catch(e) {
+        this.results  = [];
+      }
+      this.searching = false;
+    },
+
+    selectResult(item) {
+      this.selected = item;
+      this.query    = item.label;
+      this.results  = [];
+    },
+
+    async save() {
+      if (!this.selected && !this.query) return;
+      this.saving  = true;
+      this.message = '';
+      const csrf   = document.querySelector('[name=csrf_token]').value;
+      try {
+        const resp = await fetch('/admin/did/api/assign', {
+          method:  'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken':  csrf,
+          },
+          body: JSON.stringify({
+            number:          this.number,
+            assignment_type: this.type,
+            entity_id:       this.selected ? this.selected.id : this.query,
+            notes:           this.notes,
+          }),
+        });
+        const json     = await resp.json();
+        this.messageOk = json.success;
+        this.message   = json.message;
+        if (json.success) {
+          setTimeout(() => { this.open = false; location.reload(); }, 1200);
+        }
+      } catch(e) {
+        this.messageOk = false;
+        this.message   = 'Request failed: ' + e.message;
+      }
+      this.saving = false;
+    }
+  }
+}
+
+/* ── Global openAssign helper (called from table buttons) ─────────────────── */
+function openAssign(number) {
+  window._assignModal.openFor(number);
+}
+
+/* ── Release ─────────────────────────────────────────────────────────────── */
+async function releaseNumber(number) {
+  if (!confirm(`Release ${number} back to available?\nThis will remove the number from the Webex entity.`)) return;
+
+  const csrf = document.querySelector('[name=csrf_token]').value;
+  try {
+    const resp = await fetch('/admin/did/api/release', {
+      method:  'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken':  csrf,
+      },
+      body: JSON.stringify({ number }),
+    });
+    const json = await resp.json();
+    if (json.success) {
+      location.reload();
+    } else {
+      alert('Release failed: ' + json.message);
+    }
+  } catch(e) {
+    alert('Request failed: ' + e.message);
+  }
+}
+
+// Expose modal instance to global scope via Alpine init
+document.addEventListener('alpine:init', () => {
+  Alpine.data('assignModalData', assignModal);
+});
+</script>
+{% endblock %}
