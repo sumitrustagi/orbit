@@ -1,0 +1,229 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}SNOW Integration Config{% endblock %}
+{% block page_title %}ServiceNow Integration{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">
+  <a href="{{ url_for('snow.requests_list') }}" class="text-muted text-decoration-none">
+    SNOW Requests
+  </a> / Configuration
+</div>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  .form-card { max-width: 760px; }
+  .section-title {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.1em; color: #94a3b8; margin: 1.5rem 0 0.75rem;
+  }
+  .webhook-url-box {
+    background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px;
+    padding:0.75rem 1rem; font-family:'Courier New',monospace;
+    font-size:0.82rem; word-break:break-all; color:#1e293b;
+    user-select:all;
+  }
+  .test-result {
+    border-radius:8px; padding:0.875rem 1rem;
+    display:none; margin-top:0.75rem;
+  }
+  .test-result.ok { background:#f0fdf4; border:1px solid #86efac; color:#166534; }
+  .test-result.fail { background:#fef2f2; border:1px solid #fca5a5; color:#991b1b; }
+</style>
+{% endblock %}
+
+
+{% block content %}
+<div class="form-card">
+
+  <!-- ── Webhook URL info card ── -->
+  <div class="orbit-card mb-4 p-3" style="border-left:4px solid #3b82f6;">
+    <div class="fw-semibold mb-2">
+      <i class="bi bi-link-45deg text-primary me-2"></i>
+      Webhook Endpoint
+    </div>
+    <p class="text-muted small mb-2">
+      Configure ServiceNow to POST to this URL when a Webex Calling
+      provisioning request is raised. Secure it with the shared secret below.
+    </p>
+    <div class="webhook-url-box" id="webhookUrl">
+      https://{{ request.host }}/api/snow/webhook
+    </div>
+    <button class="btn btn-sm btn-outline-secondary mt-2"
+            onclick="copyUrl()">
+      <i class="bi bi-clipboard me-1"></i>Copy URL
+    </button>
+  </div>
+
+  <!-- ── Config form ── -->
+  <div class="orbit-card">
+    <div class="orbit-card-header">
+      <i class="bi bi-gear text-primary"></i>
+      <span class="fw-semibold">ServiceNow Settings</span>
+    </div>
+    <div class="orbit-card-body">
+      <form method="POST" novalidate>
+        {{ form.hidden_tag() }}
+
+        <p class="section-title">Connection</p>
+
+        <div class="row g-3 mb-3">
+          <div class="col-md-12">
+            {{ form.snow_instance.label(class="form-label fw-semibold") }}
+            {{ form.snow_instance(class="form-control" + (" is-invalid" if form.snow_instance.errors else "")) }}
+            <div class="form-text">e.g. https://yourcompany.service-now.com</div>
+            {% for e in form.snow_instance.errors %}
+              <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="col-md-6">
+            {{ form.snow_username.label(class="form-label fw-semibold") }}
+            {{ form.snow_username(class="form-control" + (" is-invalid" if form.snow_username.errors else "")) }}
+            {% for e in form.snow_username.errors %}
+              <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="col-md-6">
+            {{ form.snow_password.label(class="form-label fw-semibold") }}
+            {{ form.snow_password(class="form-control") }}
+            <div class="form-text">Leave blank to keep existing password.</div>
+          </div>
+        </div>
+
+        <!-- Test connection button -->
+        <button type="button" class="btn btn-outline-primary btn-sm mb-3"
+                onclick="testConnection()">
+          <i class="bi bi-wifi me-1"></i>Test Connection
+        </button>
+        <div id="testResult" class="test-result mb-3"></div>
+
+        <hr/>
+        <p class="section-title">Fulfillment Behaviour</p>
+
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            {{ form.default_did_pool_id.label(class="form-label fw-semibold") }}
+            {{ form.default_did_pool_id(class="form-select") }}
+            <div class="form-text">
+              Numbers are drawn from this pool for auto-fulfilled requests.
+            </div>
+          </div>
+          <div class="col-md-6">
+            {{ form.snow_catalog_item_id.label(class="form-label fw-semibold") }}
+            {{ form.snow_catalog_item_id(class="form-control") }}
+          </div>
+          <div class="col-md-6">
+            {{ form.snow_fulfilled_state.label(class="form-label fw-semibold") }}
+            {{ form.snow_fulfilled_state(class="form-control") }}
+            <div class="form-text">SNOW state code for fulfilled items (default: 3)</div>
+          </div>
+          <div class="col-md-6">
+            {{ form.snow_failed_state.label(class="form-label fw-semibold") }}
+            {{ form.snow_failed_state(class="form-control") }}
+            <div class="form-text">SNOW state code for failed items (default: 4)</div>
+          </div>
+          <div class="col-md-6">
+            {{ form.snow_assignment_group.label(class="form-label fw-semibold") }}
+            {{ form.snow_assignment_group(class="form-control") }}
+          </div>
+        </div>
+
+        <!-- Toggle switches -->
+        <div class="mb-3 d-flex flex-column gap-2">
+          <div class="form-check form-switch">
+            {{ form.auto_fulfill(class="form-check-input", role="switch") }}
+            <label class="form-check-label" for="{{ form.auto_fulfill.id }}">
+              <span class="fw-semibold">Auto-fulfill incoming requests</span>
+              <div class="text-muted small">
+                When enabled, Orbit immediately provisions a DID on receiving a webhook.
+                When disabled, requests queue as Pending for manual review.
+              </div>
+            </label>
+          </div>
+          <div class="form-check form-switch">
+            {{ form.send_welcome_email(class="form-check-input", role="switch") }}
+            <label class="form-check-label" for="{{ form.send_welcome_email.id }}">
+              <span class="fw-semibold">Send welcome email on fulfillment</span>
+            </label>
+          </div>
+          <div class="form-check form-switch">
+            {{ form.send_did_email(class="form-check-input", role="switch") }}
+            <label class="form-check-label" for="{{ form.send_did_email.id }}">
+              <span class="fw-semibold">Send DID assignment email on fulfillment</span>
+            </label>
+          </div>
+        </div>
+
+        <hr/>
+        <p class="section-title">Security</p>
+
+        <div class="mb-4">
+          {{ form.snow_webhook_secret.label(class="form-label fw-semibold") }}
+          {{ form.snow_webhook_secret(class="form-control") }}
+          <div class="form-text">
+            Configure this same secret in ServiceNow as the X-Orbit-Signature HMAC key.
+            Leave blank to keep the existing secret.
+          </div>
+        </div>
+
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary px-4">
+            <i class="bi bi-floppy me-2"></i>Save Settings
+          </button>
+          <a href="{{ url_for('snow.requests_list') }}"
+             class="btn btn-outline-secondary">Cancel</a>
+        </div>
+
+      </form>
+    </div>
+  </div>
+
+</div><!-- /form-card -->
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+function copyUrl() {
+  const url = document.getElementById('webhookUrl').textContent.trim();
+  navigator.clipboard.writeText(url).then(() => {
+    const btn = event.target.closest('button');
+    btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Copied!';
+    setTimeout(() => {
+      btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copy URL';
+    }, 2000);
+  });
+}
+
+async function testConnection() {
+  const btn    = event.target.closest('button');
+  const result = document.getElementById('testResult');
+  const csrf   = document.querySelector('[name=csrf_token]').value;
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Testing…';
+  result.style.display = 'none';
+
+  try {
+    const resp = await fetch("{{ url_for('snow.api_test_connection') }}", {
+      method:  'POST',
+      headers: { 'X-CSRFToken': csrf },
+    });
+    const data = await resp.json();
+
+    result.style.display = 'block';
+    result.className     = `test-result ${data.ok ? 'ok' : 'fail'}`;
+    result.innerHTML     = `
+      <i class="bi bi-${data.ok ? 'check-circle-fill' : 'x-circle-fill'} me-2"></i>
+      ${data.message}
+    `;
+  } catch(e) {
+    result.style.display = 'block';
+    result.className     = 'test-result fail';
+    result.innerHTML     = `<i class="bi bi-x-circle-fill me-2"></i>Request failed: ${e.message}`;
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-wifi me-1"></i>Test Connection';
+}
+</script>
+{% endblock %}
