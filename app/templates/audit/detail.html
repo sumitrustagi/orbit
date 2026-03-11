@@ -1,0 +1,266 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}Audit Event #{{ entry.id }}{% endblock %}
+{% block page_title %}Audit Event Detail{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">
+  <a href="{{ url_for('audit.list_logs') }}" class="text-muted text-decoration-none">
+    Audit Log
+  </a>
+  / Event #{{ entry.id }}
+</div>
+{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('audit.list_logs') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-arrow-left me-1"></i>Back to List
+</a>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  .detail-grid { display: grid; grid-template-columns: 180px 1fr; gap: 0; }
+  .detail-row { display: contents; }
+  .detail-row .dk {
+    padding: 0.6rem 1rem; background: #f8fafc;
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.07em; color: #64748b;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .detail-row .dv {
+    padding: 0.6rem 1rem; font-size: 0.875rem; color: #1e293b;
+    border-bottom: 1px solid #f1f5f9; word-break: break-word;
+  }
+  .detail-row:last-child .dk,
+  .detail-row:last-child .dv { border-bottom: none; }
+  .diff-block { border-radius: 8px; overflow: hidden; font-size: 0.8rem; }
+  .diff-removed { background: #fef2f2; color: #991b1b;
+                  border-left: 3px solid #ef4444; padding: 0.25rem 0.5rem; }
+  .diff-added   { background: #f0fdf4; color: #166534;
+                  border-left: 3px solid #22c55e; padding: 0.25rem 0.5rem; }
+  .diff-key     { font-weight: 700; font-family: 'Courier New', monospace;
+                  margin-right: 0.5rem; }
+  .hash-block   { font-family: 'Courier New', monospace; font-size: 0.72rem;
+                  word-break: break-all; color: #475569; }
+  .nav-arrow    { font-size: 0.8rem; }
+</style>
+{% endblock %}
+
+
+{% block content %}
+
+<!-- Prev / Next navigation -->
+<div class="d-flex gap-2 mb-3">
+  {% if prev_entry %}
+  <a href="{{ url_for('audit.detail', entry_id=prev_entry.id) }}"
+     class="btn btn-sm btn-outline-secondary nav-arrow">
+    <i class="bi bi-chevron-left me-1"></i>#{{ prev_entry.id }}
+    <span class="text-muted ms-1">{{ prev_entry.action }}</span>
+  </a>
+  {% endif %}
+  <span class="flex-grow-1"></span>
+  {% if next_entry %}
+  <a href="{{ url_for('audit.detail', entry_id=next_entry.id) }}"
+     class="btn btn-sm btn-outline-secondary nav-arrow">
+    <span class="text-muted me-1">{{ next_entry.action }}</span>
+    #{{ next_entry.id }}<i class="bi bi-chevron-right ms-1"></i>
+  </a>
+  {% endif %}
+</div>
+
+<div class="row g-3">
+
+  <!-- ── Left: Core details ── -->
+  <div class="col-lg-7">
+    <div class="orbit-card h-100">
+      <div class="orbit-card-header">
+        <i class="bi bi-info-circle text-primary"></i>
+        <span class="fw-semibold">Event Details</span>
+        <!-- Status badge -->
+        {% if entry.status == 'success' %}
+        <span class="badge bg-success-subtle text-success ms-2">
+          <i class="bi bi-check-circle-fill me-1"></i>Success
+        </span>
+        {% else %}
+        <span class="badge bg-danger-subtle text-danger ms-2">
+          <i class="bi bi-x-circle-fill me-1"></i>Failure
+        </span>
+        {% endif %}
+      </div>
+
+      <div class="detail-grid">
+        <div class="detail-row">
+          <div class="dk">Event ID</div>
+          <div class="dv"><span class="badge bg-secondary">#{{ entry.id }}</span></div>
+        </div>
+        <div class="detail-row">
+          <div class="dk">Timestamp</div>
+          <div class="dv">
+            {{ entry.timestamp.strftime('%A, %d %B %Y at %H:%M:%S UTC') }}
+            <br/><small class="text-muted">{{ entry.timestamp.isoformat() }}</small>
+          </div>
+        </div>
+        <div class="detail-row">
+          <div class="dk">Action</div>
+          <div class="dv">
+            <code class="text-primary fw-bold">{{ entry.action }}</code>
+          </div>
+        </div>
+        <div class="detail-row">
+          <div class="dk">Username</div>
+          <div class="dv">
+            {{ entry.username or '—' }}
+            {% if entry.user_role %}
+            <span class="badge bg-light text-muted ms-2" style="font-size:0.7rem;">
+              {{ entry.user_role.replace('_',' ') | title }}
+            </span>
+            {% endif %}
+            {% if entry.user_id %}
+            <a href="{{ url_for('admin.user_detail', user_id=entry.user_id) }}"
+               class="btn btn-sm btn-link p-0 ms-2" style="font-size:0.75rem;">
+              View User
+            </a>
+            {% endif %}
+          </div>
+        </div>
+        <div class="detail-row">
+          <div class="dk">IP Address</div>
+          <div class="dv">
+            {% if entry.ip_address %}
+            <code>{{ entry.ip_address }}</code>
+            <a href="{{ url_for('audit.list_logs', ip_address=entry.ip_address) }}"
+               class="btn btn-sm btn-link p-0 ms-2" style="font-size:0.75rem;">
+              Filter by IP
+            </a>
+            {% else %}—{% endif %}
+          </div>
+        </div>
+        <div class="detail-row">
+          <div class="dk">User Agent</div>
+          <div class="dv" style="font-size:0.78rem;color:#64748b;">
+            {{ entry.user_agent | truncate(120) if entry.user_agent else '—' }}
+          </div>
+        </div>
+        <div class="detail-row">
+          <div class="dk">Resource</div>
+          <div class="dv">
+            {% if entry.resource_type %}
+            <span class="badge bg-primary-subtle text-primary me-1">
+              {{ entry.resource_type | replace('_',' ') | title }}
+            </span>
+            {% endif %}
+            {% if entry.resource_id and entry.resource_id != 'None' %}
+            <code class="text-muted" style="font-size:0.78rem;">
+              #{{ entry.resource_id }}
+            </code>
+            {% endif %}
+            {% if entry.resource_name %}
+            <div class="mt-1" style="font-size:0.85rem;">{{ entry.resource_name }}</div>
+            {% endif %}
+          </div>
+        </div>
+        {% if entry.http_method %}
+        <div class="detail-row">
+          <div class="dk">HTTP Request</div>
+          <div class="dv">
+            <code>{{ entry.http_method }} {{ entry.http_path }}</code>
+            {% if entry.http_status %}
+            <span class="badge ms-2
+              {{ 'bg-success-subtle text-success' if entry.http_status < 300
+                 else 'bg-warning-subtle text-warning' if entry.http_status < 500
+                 else 'bg-danger-subtle text-danger' }}">
+              {{ entry.http_status }}
+            </span>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+        {% if entry.status_detail %}
+        <div class="detail-row">
+          <div class="dk">Status Detail</div>
+          <div class="dv" style="color:#64748b;">{{ entry.status_detail }}</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Right: Hash + Diff ── -->
+  <div class="col-lg-5">
+
+    <!-- Chain hash card -->
+    <div class="orbit-card mb-3">
+      <div class="orbit-card-header">
+        <i class="bi bi-shield-check text-success"></i>
+        <span class="fw-semibold">Chain Integrity</span>
+      </div>
+      <div class="p-3">
+        <div class="filter-label mb-1" style="font-size:0.7rem;color:#64748b;">
+          SHA-256 Row Hash
+        </div>
+        <div class="hash-block p-2 bg-light rounded">
+          {{ entry.row_hash or 'Not computed' }}
+        </div>
+        <div class="mt-2 small text-muted">
+          This hash covers the event payload and chains to the previous row's hash,
+          making tampering with any single row detectable.
+        </div>
+      </div>
+    </div>
+
+    <!-- Diff card (only shown when payload_before or payload_after exist) -->
+    {% if entry.payload_before or entry.payload_after %}
+    <div class="orbit-card">
+      <div class="orbit-card-header">
+        <i class="bi bi-arrows-collapse text-warning"></i>
+        <span class="fw-semibold">Change Diff</span>
+        <span class="badge bg-warning-subtle text-warning ms-2">
+          {{ entry.action }}
+        </span>
+      </div>
+      <div class="p-3 diff-block">
+        {% if entry.payload_before and entry.payload_after %}
+          {% set before = entry.payload_before %}
+          {% set after  = entry.payload_after %}
+          <!-- Show changed keys only -->
+          {% set all_keys = (before.keys() | list + after.keys() | list) | unique | sort %}
+          {% for key in all_keys %}
+            {% if before.get(key) != after.get(key) %}
+            <div class="mb-2">
+              <div class="diff-removed">
+                <span class="diff-key">{{ key }}:</span>
+                {{ before.get(key, '(not set)') | string | truncate(80) }}
+              </div>
+              <div class="diff-added">
+                <span class="diff-key">{{ key }}:</span>
+                {{ after.get(key, '(not set)') | string | truncate(80) }}
+              </div>
+            </div>
+            {% endif %}
+          {% endfor %}
+        {% elif entry.payload_after %}
+          <!-- CREATE — show full payload_after -->
+          {% for key, val in entry.payload_after.items() %}
+          <div class="diff-added mb-1">
+            <span class="diff-key">{{ key }}:</span>
+            {{ val | string | truncate(80) }}
+          </div>
+          {% endfor %}
+        {% elif entry.payload_before %}
+          <!-- DELETE — show full payload_before -->
+          {% for key, val in entry.payload_before.items() %}
+          <div class="diff-removed mb-1">
+            <span class="diff-key">{{ key }}:</span>
+            {{ val | string | truncate(80) }}
+          </div>
+          {% endfor %}
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+{% endblock %}
