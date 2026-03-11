@@ -1,0 +1,426 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}Audit Log{% endblock %}
+{% block page_title %}Audit Log{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">
+  System / Audit Log
+  <span class="ms-2 badge bg-secondary-subtle text-secondary">
+    {{ pagination.total | default(0) }} records
+  </span>
+</div>
+{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('audit.export_page') }}" class="btn btn-sm btn-outline-primary">
+  <i class="bi bi-download me-1"></i>Export
+</a>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  /* ── Filter sidebar ── */
+  .filter-sidebar {
+    width: 260px; flex-shrink: 0;
+    background: #fff; border: 1px solid #e2e8f0;
+    border-radius: 10px; padding: 1rem;
+    height: fit-content; position: sticky; top: 70px;
+  }
+  .filter-label {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.1em; color: #64748b; margin-bottom: 0.35rem;
+  }
+  .filter-sidebar .form-control,
+  .filter-sidebar .form-select {
+    font-size: 0.8rem;
+  }
+
+  /* ── Action badge colour map ── */
+  .action-badge { font-size: 0.7rem; font-weight: 700;
+                  border-radius: 4px; padding: 0.2rem 0.5rem; }
+  .ab-login       { background:#dcfce7; color:#166534; }
+  .ab-login-fail  { background:#fee2e2; color:#991b1b; }
+  .ab-logout      { background:#f1f5f9; color:#475569; }
+  .ab-create      { background:#dbeafe; color:#1e40af; }
+  .ab-update      { background:#fef9c3; color:#854d0e; }
+  .ab-delete      { background:#fee2e2; color:#991b1b; }
+  .ab-forward     { background:#f0fdf4; color:#166534; }
+  .ab-did         { background:#ede9fe; color:#5b21b6; }
+  .ab-snow        { background:#fff7ed; color:#9a3412; }
+  .ab-config      { background:#fef3c7; color:#92400e; }
+  .ab-export      { background:#ecfeff; color:#164e63; }
+  .ab-default     { background:#f1f5f9; color:#475569; }
+
+  /* ── Sparkline ── */
+  .sparkline-bar {
+    display: inline-block; width: 8px; border-radius: 2px 2px 0 0;
+    transition: opacity 0.2s;
+  }
+  .sparkline-bar:hover { opacity: 0.75; }
+
+  /* ── Status dot ── */
+  .status-dot { width:8px;height:8px;border-radius:50%;display:inline-block; }
+  .status-dot.success { background:#22c55e; }
+  .status-dot.failure { background:#ef4444; }
+
+  /* ── Monospace fields ── */
+  .mono { font-family:'Courier New',monospace; font-size:0.78rem; }
+</style>
+{% endblock %}
+
+
+{% block content %}
+
+<!-- ── Stat Bar ──────────────────────────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+  {% set stat_items = [
+    ("bi-journal-text",   "primary", stats.total,          "Events (30d)"),
+    ("bi-x-circle",       "danger",  stats.failures,       "Failures (30d)"),
+    ("bi-shield-exclamation","warning",stats.login_failures,"Login Failures (30d)"),
+    ("bi-box-arrow-in-right","success",stats.logins,       "Logins (30d)"),
+    ("bi-gear",           "info",    stats.config_changes, "Config Changes (30d)"),
+    ("bi-people",         "secondary",stats.unique_users,  "Active Users (30d)"),
+  ] %}
+  {% for icon, color, value, label in stat_items %}
+  <div class="col-md-2 col-sm-4 col-6">
+    <div class="stat-widget">
+      <div class="stat-icon bg-{{ color }}-subtle text-{{ color }}">
+        <i class="bi {{ icon }}"></i>
+      </div>
+      <div>
+        <div class="stat-value">{{ value | default(0) }}</div>
+        <div class="stat-label">{{ label }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ── Sparkline row ─────────────────────────────────────────────────────── -->
+{% if daily_counts %}
+<div class="orbit-card mb-4 p-3">
+  <div class="d-flex align-items-end gap-1" style="height:48px;"
+       x-data="sparkline({{ daily_counts | tojson }})">
+    <template x-for="(d, i) in data" :key="i">
+      <div class="d-flex flex-column align-items-center gap-0" style="flex:1;">
+        <div class="sparkline-bar bg-danger"
+             :style="`height:${scale(d.failure)}px`"
+             :title="`${d.date}: ${d.failure} failures`"></div>
+        <div class="sparkline-bar bg-success"
+             :style="`height:${scale(d.success)}px`"
+             :title="`${d.date}: ${d.success} success`"></div>
+      </div>
+    </template>
+  </div>
+  <div class="d-flex justify-content-between mt-1"
+       style="font-size:0.65rem;color:#94a3b8;">
+    <span>{{ daily_counts[0].date if daily_counts else '' }}</span>
+    <span class="text-muted">
+      <span class="badge bg-success-subtle text-success me-1">█ Success</span>
+      <span class="badge bg-danger-subtle text-danger">█ Failure</span>
+    </span>
+    <span>{{ daily_counts[-1].date if daily_counts else '' }}</span>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Main layout: filter sidebar + table ───────────────────────────────── -->
+<div class="d-flex gap-3 align-items-start">
+
+  <!-- Filter sidebar -->
+  <div class="filter-sidebar d-none d-xl-block">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <span class="fw-bold" style="font-size:0.875rem;">Filters</span>
+      {% if filters.values() | select | list %}
+      <a href="{{ url_for('audit.list_logs') }}"
+         class="btn btn-outline-secondary btn-sm py-0">Clear</a>
+      {% endif %}
+    </div>
+
+    <form method="GET" id="filterForm">
+      <div class="mb-3">
+        <div class="filter-label">Search</div>
+        {{ form.search(class="form-control form-control-sm", id="search",
+                       value=filters.search) }}
+      </div>
+      <div class="mb-3">
+        <div class="filter-label">Action</div>
+        {{ form.action(class="form-select form-select-sm") }}
+      </div>
+      <div class="mb-3">
+        <div class="filter-label">Resource Type</div>
+        {{ form.resource(class="form-select form-select-sm") }}
+      </div>
+      <div class="mb-3">
+        <div class="filter-label">Status</div>
+        {{ form.status(class="form-select form-select-sm") }}
+      </div>
+      <div class="mb-3">
+        <div class="filter-label">Username</div>
+        {{ form.username(class="form-control form-control-sm",
+                         value=filters.username) }}
+      </div>
+      <div class="mb-3">
+        <div class="filter-label">IP Address</div>
+        {{ form.ip_address(class="form-control form-control-sm",
+                           value=filters.ip_address) }}
+      </div>
+      <div class="mb-3">
+        <div class="filter-label">Date From</div>
+        <input type="date" name="date_from" class="form-control form-control-sm"
+               value="{{ filters.date_from or '' }}"/>
+      </div>
+      <div class="mb-3">
+        <div class="filter-label">Date To</div>
+        <input type="date" name="date_to" class="form-control form-control-sm"
+               value="{{ filters.date_to or '' }}"/>
+      </div>
+      <div class="mb-3">
+        <div class="filter-label">Per Page</div>
+        {{ form.per_page(class="form-select form-select-sm") }}
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm w-100">
+        <i class="bi bi-funnel-fill me-1"></i>Apply Filters
+      </button>
+    </form>
+  </div>
+
+  <!-- Table column -->
+  <div class="flex-grow-1 min-w-0">
+
+    <!-- Mobile filter toggle -->
+    <div class="d-xl-none mb-3">
+      <button class="btn btn-outline-secondary btn-sm" type="button"
+              data-bs-toggle="collapse" data-bs-target="#mobileFilters">
+        <i class="bi bi-funnel me-1"></i>Filters
+        {% if filters.values() | select | list %}
+        <span class="badge bg-primary ms-1">ON</span>
+        {% endif %}
+      </button>
+      <div class="collapse mt-2" id="mobileFilters">
+        <div class="orbit-card p-3">
+          <form method="GET">
+            <div class="row g-2">
+              <div class="col-6">
+                <input type="text" name="search" class="form-control form-control-sm"
+                       placeholder="Search…" value="{{ filters.search }}"/>
+              </div>
+              <div class="col-6">
+                <select name="action" class="form-select form-select-sm">
+                  {% for val, label in form.action.choices %}
+                  <option value="{{ val }}" {{ 'selected' if filters.action == val }}>
+                    {{ label }}
+                  </option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-12">
+                <button type="submit" class="btn btn-primary btn-sm w-100">Apply</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Table card -->
+    <div class="orbit-card">
+      <div class="orbit-card-header">
+        <i class="bi bi-journal-check text-primary"></i>
+        <span class="fw-semibold">Audit Events</span>
+        {% if filters.values() | select | list %}
+        <span class="badge bg-primary-subtle text-primary ms-1">Filtered</span>
+        {% endif %}
+        <span class="ms-auto text-muted" style="font-size:0.78rem;">
+          {{ pagination.total }} total
+          · page {{ pagination.page }} of {{ pagination.pages }}
+        </span>
+      </div>
+
+      {% if entries %}
+      <div class="table-responsive">
+        <table class="table orbit-table mb-0">
+          <thead>
+            <tr>
+              <th style="width:160px;">Timestamp</th>
+              <th style="width:140px;">User</th>
+              <th style="width:110px;">Action</th>
+              <th>Resource</th>
+              <th style="width:110px;">IP Address</th>
+              <th style="width:60px;">Status</th>
+              <th style="width:40px;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in entries %}
+            <tr>
+              <!-- Timestamp -->
+              <td class="mono text-muted" style="font-size:0.75rem;white-space:nowrap;">
+                {{ e.timestamp.strftime('%Y-%m-%d') }}<br/>
+                <span style="font-size:0.7rem;">
+                  {{ e.timestamp.strftime('%H:%M:%S UTC') }}
+                </span>
+              </td>
+
+              <!-- User -->
+              <td>
+                <div style="font-weight:600;font-size:0.82rem;">
+                  {{ e.username or '—' }}
+                </div>
+                {% if e.user_role %}
+                <div class="text-muted" style="font-size:0.7rem;">
+                  {{ e.user_role.replace('_',' ') | title }}
+                </div>
+                {% endif %}
+              </td>
+
+              <!-- Action badge -->
+              <td>
+                {% set action_map = {
+                  'LOGIN':                    'ab-login',
+                  'LOGIN_SSO':                'ab-login',
+                  'LOGIN_FAILED':             'ab-login-fail',
+                  'LOGOUT':                   'ab-logout',
+                  'CREATE':                   'ab-create',
+                  'UPDATE':                   'ab-update',
+                  'DELETE':                   'ab-delete',
+                  'CALL_FORWARD_APPLIED':     'ab-forward',
+                  'CALL_FORWARD_REVERTED':    'ab-forward',
+                  'CALL_FORWARD_ONDEMAND_ON': 'ab-forward',
+                  'CALL_FORWARD_ONDEMAND_OFF':'ab-forward',
+                  'DID_ASSIGNED':             'ab-did',
+                  'DID_RELEASED':             'ab-did',
+                  'SNOW_REQUEST_RECEIVED':    'ab-snow',
+                  'SNOW_REQUEST_COMPLETED':   'ab-snow',
+                  'CONFIG_UPDATED':           'ab-config',
+                  'EXPORT':                   'ab-export',
+                } %}
+                <span class="action-badge {{ action_map.get(e.action, 'ab-default') }}">
+                  {{ e.action | replace('_',' ') }}
+                </span>
+              </td>
+
+              <!-- Resource -->
+              <td>
+                {% if e.resource_type %}
+                <span class="text-muted" style="font-size:0.72rem;">
+                  {{ e.resource_type | replace('_',' ') | title }}
+                </span>
+                {% if e.resource_name %}
+                <div style="font-size:0.82rem;">{{ e.resource_name | truncate(40) }}</div>
+                {% endif %}
+                {% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+
+              <!-- IP -->
+              <td class="mono" style="font-size:0.75rem;white-space:nowrap;">
+                {{ e.ip_address or '—' }}
+              </td>
+
+              <!-- Status -->
+              <td>
+                <span class="status-dot {{ e.status }}"></span>
+              </td>
+
+              <!-- Detail link -->
+              <td>
+                <a href="{{ url_for('audit.detail', entry_id=e.id) }}"
+                   class="btn btn-sm btn-light py-0 px-1" title="View Detail">
+                  <i class="bi bi-chevron-right" style="font-size:0.7rem;"></i>
+                </a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      {% if pagination.pages > 1 %}
+      <div class="d-flex justify-content-between align-items-center p-3
+                  border-top" style="font-size:0.82rem;">
+        <span class="text-muted">
+          Showing {{ ((page-1) * filters.per_page) + 1 }}–
+          {{ [page * filters.per_page, pagination.total] | min }}
+          of {{ pagination.total }}
+        </span>
+        <nav>
+          <ul class="pagination pagination-sm mb-0">
+            <li class="page-item {{ 'disabled' if not pagination.has_prev }}">
+              <a class="page-link"
+                 href="{{ url_for('audit.list_logs', **{**filters, 'page': page-1, 'date_from': filters.date_from or '', 'date_to': filters.date_to or ''}) }}">
+                ‹
+              </a>
+            </li>
+            {% for p in pagination.iter_pages(left_edge=1, right_edge=1,
+                                               left_current=2, right_current=2) %}
+              {% if p %}
+              <li class="page-item {{ 'active' if p == page }}">
+                <a class="page-link"
+                   href="{{ url_for('audit.list_logs', **{**filters, 'page': p, 'date_from': filters.date_from or '', 'date_to': filters.date_to or ''}) }}">
+                  {{ p }}
+                </a>
+              </li>
+              {% else %}
+              <li class="page-item disabled"><span class="page-link">…</span></li>
+              {% endif %}
+            {% endfor %}
+            <li class="page-item {{ 'disabled' if not pagination.has_next }}">
+              <a class="page-link"
+                 href="{{ url_for('audit.list_logs', **{**filters, 'page': page+1, 'date_from': filters.date_from or '', 'date_to': filters.date_to or ''}) }}">
+                ›
+              </a>
+            </li>
+          </ul>
+        </nav>
+      </div>
+      {% endif %}
+
+      {% else %}
+      <!-- Empty state -->
+      <div class="text-center py-5">
+        <i class="bi bi-journal-x fs-1 text-muted opacity-25"></i>
+        <p class="text-muted mt-3 mb-0">No audit events match the current filters.</p>
+        <a href="{{ url_for('audit.list_logs') }}"
+           class="btn btn-sm btn-outline-secondary mt-2">Clear Filters</a>
+      </div>
+      {% endif %}
+
+    </div><!-- /orbit-card -->
+  </div><!-- /table column -->
+</div><!-- /flex layout -->
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+function sparkline(data) {
+  const maxVal = Math.max(...data.map(d => d.success + d.failure), 1);
+  return {
+    data,
+    scale(v) {
+      return Math.max(2, Math.round((v / maxVal) * 40));
+    }
+  };
+}
+
+// Auto-submit filter form on select change
+document.querySelectorAll('#filterForm select').forEach(el => {
+  el.addEventListener('change', () => document.getElementById('filterForm').submit());
+});
+
+// Debounced search
+let searchTimer;
+const searchInput = document.getElementById('search');
+if (searchInput) {
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => document.getElementById('filterForm').submit(), 600);
+  });
+}
+</script>
+{% endblock %}
