@@ -1,0 +1,137 @@
+{% extends "settings/_layout.html" %}
+{% block title %}Email Settings{% endblock %}
+{% block page_title %}System Settings{% endblock %}
+
+{% block settings_content %}
+<div class="orbit-card">
+  <div class="orbit-card-header">
+    <i class="bi bi-envelope text-primary"></i>
+    <span class="fw-semibold">Email / SMTP Settings</span>
+  </div>
+  <div class="orbit-card-body">
+    <form method="POST" novalidate>
+      {{ form.hidden_tag() }}
+
+      <p class="section-hd">SMTP Server</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-7">
+          {{ form.smtp_host.label(class="form-label") }}
+          {{ form.smtp_host(class="form-control") }}
+        </div>
+        <div class="col-md-2">
+          {{ form.smtp_port.label(class="form-label") }}
+          {{ form.smtp_port(class="form-control") }}
+        </div>
+        <div class="col-md-3 d-flex align-items-end gap-3 pb-1">
+          <div class="form-check form-switch">
+            {{ form.smtp_use_tls(class="form-check-input", role="switch") }}
+            <label class="form-check-label" for="{{ form.smtp_use_tls.id }}">STARTTLS</label>
+          </div>
+          <div class="form-check form-switch">
+            {{ form.smtp_use_ssl(class="form-check-input", role="switch") }}
+            <label class="form-check-label" for="{{ form.smtp_use_ssl.id }}">SSL</label>
+          </div>
+        </div>
+      </div>
+
+      <p class="section-hd">Authentication</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-5">
+          {{ form.smtp_username.label(class="form-label") }}
+          {{ form.smtp_username(class="form-control") }}
+        </div>
+        <div class="col-md-5">
+          {{ form.smtp_password.label(class="form-label") }}
+          <div class="input-group">
+            {{ form.smtp_password(class="form-control", id="smtpPwd") }}
+            <button type="button" class="btn btn-outline-secondary"
+                    onclick="
+                      const i=document.getElementById('smtpPwd');
+                      i.type=i.type==='password'?'text':'password';
+                      this.innerHTML=i.type==='text'?'<i class=\'bi bi-eye-slash\'></i>':'<i class=\'bi bi-eye\'></i>';">
+              <i class="bi bi-eye"></i>
+            </button>
+          </div>
+          {% if pwd_set %}
+          <div class="form-text text-success">
+            <i class="bi bi-check-circle me-1"></i>Password stored. Leave blank to keep.
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <p class="section-hd">Sender Identity</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-5">
+          {{ form.smtp_sender_name.label(class="form-label") }}
+          {{ form.smtp_sender_name(class="form-control") }}
+        </div>
+        <div class="col-md-5">
+          {{ form.smtp_sender_email.label(class="form-label") }}
+          {{ form.smtp_sender_email(class="form-control"
+              + (" is-invalid" if form.smtp_sender_email.errors else "")) }}
+          {% for e in form.smtp_sender_email.errors %}
+            <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+        </div>
+      </div>
+
+      <p class="section-hd">Test Email</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-6">
+          {{ form.test_email_recipient.label(class="form-label") }}
+          {{ form.test_email_recipient(class="form-control",
+                                       id="testRecipient") }}
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
+          <button type="button" class="btn btn-outline-secondary w-100"
+                  onclick="sendTestEmail(this)">
+            <i class="bi bi-send me-1"></i>Send Test
+          </button>
+        </div>
+        <div class="col-12">
+          <span id="emailTestResult" class="small"></span>
+        </div>
+      </div>
+
+      <div class="border-top pt-3 mt-2">
+        <button type="submit" class="btn btn-primary px-4">
+          <i class="bi bi-floppy2 me-2"></i>Save Email Settings
+        </button>
+      </div>
+
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function sendTestEmail(btn) {
+  const recipient = document.getElementById('testRecipient').value.trim();
+  const result    = document.getElementById('emailTestResult');
+  if (!recipient) {
+    result.innerHTML = '<span class="text-danger">Enter a recipient email first.</span>';
+    return;
+  }
+  btn.disabled = true;
+  result.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Sending…</span>';
+  try {
+    const resp = await fetch('/admin/settings/test-email', {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'X-CSRFToken': '{{ csrf_token() }}'
+      },
+      body: JSON.stringify({ recipient })
+    });
+    const data = await resp.json();
+    result.innerHTML = data.success
+      ? `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>${data.message}</span>`
+      : `<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>${data.message}</span>`;
+  } catch(e) {
+    result.innerHTML = '<span class="text-danger">Request failed.</span>';
+  }
+  btn.disabled = false;
+}
+</script>
+{% endblock %}
