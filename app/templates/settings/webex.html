@@ -1,0 +1,115 @@
+{% extends "settings/_layout.html" %}
+{% block title %}Webex Settings{% endblock %}
+{% block page_title %}System Settings{% endblock %}
+
+{% block settings_content %}
+<div class="orbit-card">
+  <div class="orbit-card-header">
+    <i class="bi bi-cloud-check text-primary"></i>
+    <span class="fw-semibold">Webex API Configuration</span>
+  </div>
+  <div class="orbit-card-body">
+    <form method="POST" novalidate>
+      {{ form.hidden_tag() }}
+
+      <!-- Token -->
+      <p class="section-hd">Authentication</p>
+      <div class="mb-3">
+        {{ form.webex_access_token.label(class="form-label") }}
+        <div class="input-group">
+          {{ form.webex_access_token(class="form-control", id="tokenInput") }}
+          <button type="button" class="btn btn-outline-secondary"
+                  onclick="toggleVisibility('tokenInput', this)">
+            <i class="bi bi-eye"></i>
+          </button>
+        </div>
+        {% if token_set %}
+        <div class="form-text text-success">
+          <i class="bi bi-check-circle me-1"></i>A token is currently stored.
+          Leave blank to keep it.
+        </div>
+        {% else %}
+        <div class="form-text text-warning">
+          <i class="bi bi-exclamation-triangle me-1"></i>No token stored yet.
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Org ID + options -->
+      <p class="section-hd">Organisation & Options</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-8">
+          {{ form.webex_org_id.label(class="form-label") }}
+          {{ form.webex_org_id(class="form-control") }}
+          <div class="form-text">
+            Found in Webex Control Hub → Account → Organisation ID.
+          </div>
+        </div>
+        <div class="col-md-4">
+          {{ form.webex_cache_ttl.label(class="form-label") }}
+          {{ form.webex_cache_ttl(class="form-control") }}
+        </div>
+        <div class="col-md-4">
+          {{ form.webex_timeout.label(class="form-label") }}
+          {{ form.webex_timeout(class="form-control") }}
+        </div>
+        <div class="col-md-8 d-flex align-items-end pb-1">
+          <div class="form-check form-switch">
+            {{ form.webex_calling_enabled(class="form-check-input", role="switch") }}
+            <label class="form-check-label" for="{{ form.webex_calling_enabled.id }}">
+              Webex Calling Enabled
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Test connection -->
+      <div class="border-top pt-3 mt-2 d-flex gap-2 align-items-center flex-wrap">
+        <button type="submit" class="btn btn-primary px-4">
+          <i class="bi bi-floppy2 me-2"></i>Save Webex Settings
+        </button>
+        <button type="button" class="btn btn-outline-secondary"
+                onclick="testConnection('webex', this)">
+          <i class="bi bi-plug me-1"></i>Test Connection
+        </button>
+        <span id="webexTestResult" class="ms-2 small"></span>
+      </div>
+
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleVisibility(inputId, btn) {
+  const inp = document.getElementById(inputId);
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    btn.innerHTML = '<i class="bi bi-eye-slash"></i>';
+  } else {
+    inp.type = 'password';
+    btn.innerHTML = '<i class="bi bi-eye"></i>';
+  }
+}
+
+async function testConnection(service, btn) {
+  const result = document.getElementById(`${service}TestResult`);
+  btn.disabled = true;
+  result.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Testing…</span>';
+  try {
+    const resp = await fetch(`/admin/settings/test-${service}`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': '{{ csrf_token() }}' }
+    });
+    const data = await resp.json();
+    result.innerHTML = data.success
+      ? `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>${data.message}</span>`
+      : `<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>${data.message}</span>`;
+  } catch(e) {
+    result.innerHTML = '<span class="text-danger">Request failed.</span>';
+  }
+  btn.disabled = false;
+}
+</script>
+{% endblock %}
