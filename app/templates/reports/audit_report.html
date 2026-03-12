@@ -1,0 +1,276 @@
+{% extends "admin/_base.html" %}
+{% block title %}Audit Report{% endblock %}
+{% block page_title %}Audit Log{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">
+  <a href="{{ url_for('reports.dashboard') }}"
+     class="text-muted text-decoration-none">Reports</a> / Audit
+</div>
+{% endblock %}
+
+{% block topbar_actions %}
+<div class="d-flex gap-2">
+  <div class="btn-group btn-group-sm">
+    {% for d,l in [(7,'7d'),(30,'30d'),(90,'90d')] %}
+    <a href="?days={{ d }}&action={{ filters.action }}&username={{ filters.username }}&resource_type={{ filters.resource_type }}&status={{ filters.status }}"
+       class="btn {{ 'btn-primary' if days==d else 'btn-outline-secondary' }}">{{ l }}</a>
+    {% endfor %}
+  </div>
+  <a href="{{ url_for('reports.export_audit', days=days) }}"
+     class="btn btn-sm btn-outline-success">
+    <i class="bi bi-download me-1"></i>Export CSV
+  </a>
+</div>
+{% endblock %}
+
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<style>
+  .chart-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:1.25rem; }
+  .chart-title { font-size:0.75rem; font-weight:700; text-transform:uppercase;
+                 letter-spacing:0.07em; color:#64748b; margin-bottom:0.875rem; }
+  .action-badge { font-size:0.65rem; font-weight:700; border-radius:4px;
+                  padding:0.15rem 0.4rem; }
+  .ab-create { background:#dcfce7; color:#166534; }
+  .ab-update { background:#dbeafe; color:#1e40af; }
+  .ab-delete { background:#fee2e2; color:#991b1b; }
+  .ab-login  { background:#f0fdf4; color:#166534; }
+  .ab-other  { background:#f1f5f9; color:#475569; }
+  .status-ok   { color:#22c55e; }
+  .status-fail { color:#ef4444; }
+</style>
+{% endblock %}
+
+
+{% block content %}
+
+<!-- Trend + Top Users -->
+<div class="row g-3 mb-3">
+  <div class="col-md-8">
+    <div class="chart-card h-100">
+      <div class="chart-title">Audit Events — Last {{ days }} Days</div>
+      <canvas id="auditTrendChart" height="180"></canvas>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="orbit-card h-100">
+      <div class="orbit-card-header">
+        <i class="bi bi-person-badge text-primary"></i>
+        <span class="fw-semibold">Top Users ({{ days }}d)</span>
+      </div>
+      <div class="p-2">
+        {% for u in top_users %}
+        <div class="d-flex align-items-center justify-content-between
+                    py-2 border-bottom" style="font-size:0.82rem;">
+          <div>
+            <div class="fw-semibold">{{ u.username }}</div>
+            <div class="text-muted" style="font-size:0.72rem;">
+              {{ u.failures }} failure{{ 's' if u.failures != 1 }}
+            </div>
+          </div>
+          <span class="badge bg-primary-subtle text-primary fw-bold px-2">
+            {{ u.total }}
+          </span>
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-3 small">No data.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="orbit-card mb-3 p-3">
+  <form method="GET" class="row g-2 align-items-end">
+    <input type="hidden" name="days" value="{{ days }}"/>
+    <div class="col-md-3">
+      <label class="form-label fw-semibold" style="font-size:0.75rem;">Action</label>
+      <input type="text" name="action" value="{{ filters.action }}"
+             class="form-control form-control-sm" placeholder="CREATE, UPDATE…"/>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label fw-semibold" style="font-size:0.75rem;">Username</label>
+      <input type="text" name="username" value="{{ filters.username }}"
+             class="form-control form-control-sm" placeholder="admin, scheduler…"/>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label fw-semibold" style="font-size:0.75rem;">Resource Type</label>
+      <input type="text" name="resource_type" value="{{ filters.resource_type }}"
+             class="form-control form-control-sm" placeholder="did, snow_request…"/>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label fw-semibold" style="font-size:0.75rem;">Status</label>
+      <select name="status" class="form-select form-select-sm">
+        <option value="">All</option>
+        <option value="success" {{ 'selected' if filters.status=='success' }}>Success</option>
+        <option value="failure" {{ 'selected' if filters.status=='failure' }}>Failure</option>
+      </select>
+    </div>
+    <div class="col-md-1 d-flex gap-2">
+      <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+        <i class="bi bi-funnel-fill"></i>
+      </button>
+      {% if filters.action or filters.username or filters.resource_type or filters.status %}
+      <a href="?days={{ days }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-x"></i>
+      </a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<!-- Audit table -->
+<div class="orbit-card">
+  <div class="orbit-card-header">
+    <i class="bi bi-journal-text text-primary"></i>
+    <span class="fw-semibold">Audit Log</span>
+    <span class="ms-auto text-muted" style="font-size:0.75rem;">
+      {{ log_data.total }} entries
+    </span>
+  </div>
+  <div class="table-responsive">
+    <table class="table orbit-table mb-0">
+      <thead>
+        <tr>
+          <th style="width:150px;">Timestamp</th>
+          <th>Action</th>
+          <th>User</th>
+          <th>IP</th>
+          <th>Resource</th>
+          <th>Status</th>
+          <th>Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in log_data.items %}
+        <tr class="{{ 'table-danger bg-opacity-10' if log.status=='failure' else '' }}">
+          <td class="font-monospace" style="font-size:0.7rem;white-space:nowrap;">
+            {{ log.created_at }}
+          </td>
+          <td>
+            {% set ac = log.action | upper %}
+            <span class="action-badge
+              {{ 'ab-create' if 'CREATE' in ac
+                 else 'ab-update' if 'UPDATE' in ac
+                 else 'ab-delete' if 'DELETE' in ac
+                 else 'ab-login'  if 'LOGIN'  in ac
+                 else 'ab-other' }}">
+              {{ log.action }}
+            </span>
+          </td>
+          <td style="font-size:0.82rem;">
+            <div>{{ log.username }}</div>
+            <div class="text-muted" style="font-size:0.7rem;">{{ log.user_role }}</div>
+          </td>
+          <td class="font-monospace text-muted" style="font-size:0.72rem;">
+            {{ log.ip_address }}
+          </td>
+          <td style="font-size:0.78rem;">
+            <div class="fw-semibold">{{ log.resource_name }}</div>
+            <div class="text-muted" style="font-size:0.7rem;">{{ log.resource_type }}</div>
+          </td>
+          <td>
+            <i class="bi {{ 'bi-check-circle-fill status-ok'
+                            if log.status=='success'
+                            else 'bi-x-circle-fill status-fail' }}"></i>
+          </td>
+          <td class="text-muted" style="font-size:0.72rem;max-width:220px;
+                     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+              title="{{ log.status_detail }}">
+            {{ log.status_detail or '—' }}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7" class="text-center text-muted py-4">
+            No audit log entries for the selected filters.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if log_data.pages > 1 %}
+  <div class="d-flex justify-content-center py-3">
+    <nav>
+      <ul class="pagination pagination-sm mb-0">
+        {% if log_data.page > 1 %}
+        <li class="page-item">
+          <a class="page-link"
+             href="?page={{ log_data.page - 1 }}&days={{ days }}&action={{ filters.action }}&username={{ filters.username }}&resource_type={{ filters.resource_type }}&status={{ filters.status }}">
+            &laquo;
+          </a>
+        </li>
+        {% endif %}
+
+        {% for p in range(1, log_data.pages + 1) %}
+        {% if p == log_data.page or
+              p <= 2 or p >= log_data.pages - 1 or
+              (p >= log_data.page - 2 and p <= log_data.page + 2) %}
+        <li class="page-item {{ 'active' if p == log_data.page }}">
+          <a class="page-link"
+             href="?page={{ p }}&days={{ days }}&action={{ filters.action }}&username={{ filters.username }}&resource_type={{ filters.resource_type }}&status={{ filters.status }}">
+            {{ p }}
+          </a>
+        </li>
+        {% elif p == 3 or p == log_data.pages - 2 %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+        {% endif %}
+        {% endfor %}
+
+        {% if log_data.page < log_data.pages %}
+        <li class="page-item">
+          <a class="page-link"
+             href="?page={{ log_data.page + 1 }}&days={{ days }}&action={{ filters.action }}&username={{ filters.username }}&resource_type={{ filters.resource_type }}&status={{ filters.status }}">
+            &raquo;
+          </a>
+        </li>
+        {% endif %}
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+const DAYS = {{ days }};
+
+async function buildAuditTrend() {
+  const data = await (await fetch(`/admin/reports/api/audit-trend?days=${DAYS}`)).json();
+  new Chart(document.getElementById('auditTrendChart'), {
+    type:'line',
+    data:{
+      labels: data.map(d => d.date),
+      datasets:[
+        { label:'Total Events', data:data.map(d=>d.total),
+          borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,0.1)',
+          fill:true, tension:0.3, pointRadius:2 },
+        { label:'Failures',     data:data.map(d=>d.failures),
+          borderColor:'#ef4444', backgroundColor:'rgba(239,68,68,0.1)',
+          fill:true, tension:0.3, pointRadius:2 },
+      ],
+    },
+    options:{
+      interaction:{ mode:'index' },
+      plugins:{ legend:{ position:'top', labels:{ usePointStyle:true } } },
+      scales:{
+        x:{ grid:{ color:'rgba(226,232,240,0.7)' }, ticks:{ maxTicksLimit:12 } },
+        y:{ grid:{ color:'rgba(226,232,240,0.7)' }, beginAtZero:true,
+            ticks:{ precision:0 } },
+      },
+    },
+  });
+}
+
+document.addEventListener('DOMContentLoaded', buildAuditTrend);
+</script>
+{% endblock %}
