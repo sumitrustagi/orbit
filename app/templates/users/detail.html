@@ -1,0 +1,315 @@
+{% extends "admin/_base.html" %}
+{% block title %}User: {{ user.username }}{% endblock %}
+{% block page_title %}User Profile{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">
+  <a href="{{ url_for('users.list_users') }}"
+     class="text-muted text-decoration-none">Users</a>
+  / {{ user.username }}
+</div>
+{% endblock %}
+
+{% block topbar_actions %}
+<div class="d-flex gap-2">
+  {% if current_user.role == UserRole.SUPERADMIN %}
+  <a href="{{ url_for('users.edit_user', user_id=user.id) }}"
+     class="btn btn-sm btn-outline-primary">
+    <i class="bi bi-pencil me-1"></i>Edit
+  </a>
+  {% if current_user.id != user.id %}
+  <form method="POST"
+        action="{{ url_for('users.toggle_user', user_id=user.id) }}"
+        class="d-inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    <button type="submit"
+            class="btn btn-sm {{ 'btn-outline-warning' if user.is_active else 'btn-outline-success' }}"
+            onclick="return confirm('{{ 'Deactivate' if user.is_active else 'Activate' }} this account?')">
+      <i class="bi bi-{{ 'pause-circle' if user.is_active else 'play-circle' }} me-1"></i>
+      {{ 'Deactivate' if user.is_active else 'Activate' }}
+    </button>
+  </form>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  .profile-avatar {
+    width:72px; height:72px; border-radius:50%;
+    background:linear-gradient(135deg,#1e40af,#3b82f6);
+    color:#fff; display:flex; align-items:center; justify-content:center;
+    font-weight:800; font-size:1.75rem; flex-shrink:0;
+    box-shadow:0 4px 14px rgba(30,64,175,0.25);
+  }
+  .meta-row { display:flex; gap:0.35rem; align-items:center;
+              font-size:0.8rem; color:#64748b; }
+  .meta-row i { font-size:0.85rem; }
+  .stat-pill { background:#f1f5f9; border-radius:8px;
+               padding:0.6rem 1rem; text-align:center; }
+  .stat-pill .sp-val { font-size:1.35rem; font-weight:800; color:#0f172a; }
+  .stat-pill .sp-lbl { font-size:0.68rem; font-weight:700;
+                       text-transform:uppercase; letter-spacing:0.07em;
+                       color:#64748b; }
+  .action-badge {
+    font-size:0.65rem; font-weight:700; border-radius:4px;
+    padding:0.15rem 0.4rem;
+  }
+  .ab-create { background:#dcfce7; color:#166534; }
+  .ab-update { background:#dbeafe; color:#1e40af; }
+  .ab-delete { background:#fee2e2; color:#991b1b; }
+  .ab-login  { background:#f0fdf4; color:#166534; }
+  .ab-other  { background:#f1f5f9; color:#475569; }
+  .role-badge { font-size:0.68rem; font-weight:700; border-radius:4px;
+                padding:0.22rem 0.55rem; }
+  .rb-superadmin { background:#fef3c7; color:#92400e; }
+  .rb-admin      { background:#dbeafe; color:#1e40af; }
+  .rb-readonly   { background:#f1f5f9; color:#475569; }
+</style>
+{% endblock %}
+
+
+{% block content %}
+<div class="row g-3">
+
+  <!-- ════════════════════════════════════════════════
+       LEFT COLUMN — Profile card + actions
+  ═══════════════════════════════════════════════════ -->
+  <div class="col-lg-4">
+
+    <!-- Profile card -->
+    <div class="orbit-card mb-3">
+      <div class="orbit-card-body">
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <div class="profile-avatar">
+            {{ (user.full_name or user.username)[0].upper() }}
+          </div>
+          <div>
+            <div class="fw-bold fs-5">
+              {{ user.full_name or user.username }}
+            </div>
+            <div class="text-muted" style="font-size:0.78rem;">
+              @{{ user.username }}
+            </div>
+            <span class="role-badge rb-{{ user.role.value }} mt-1 d-inline-block">
+              {{ user.role.value | title }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Status badges -->
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          {% if user.is_active %}
+          <span class="badge bg-success-subtle text-success">Active</span>
+          {% else %}
+          <span class="badge bg-secondary-subtle text-secondary">Inactive</span>
+          {% endif %}
+
+          {% if user.locked_until and user.locked_until > now %}
+          <span class="badge bg-danger-subtle text-danger">
+            Locked until {{ user.locked_until.strftime('%d %b %H:%M') }}
+          </span>
+          {% endif %}
+
+          {% if user.must_change_password %}
+          <span class="badge bg-warning-subtle text-warning">
+            Password Change Required
+          </span>
+          {% endif %}
+        </div>
+
+        <!-- Meta -->
+        <div class="d-flex flex-column gap-2">
+          <div class="meta-row">
+            <i class="bi bi-envelope"></i>
+            <span>{{ user.email }}</span>
+          </div>
+          <div class="meta-row">
+            <i class="bi bi-calendar3"></i>
+            <span>Created {{ user.created_at.strftime('%d %b %Y') }}</span>
+          </div>
+          <div class="meta-row">
+            <i class="bi bi-clock-history"></i>
+            <span>
+              Last login:
+              {% if user.last_login_at %}
+                {{ user.last_login_at.strftime('%d %b %Y %H:%M') }}
+              {% else %}
+                Never
+              {% endif %}
+            </span>
+          </div>
+          {% if user.last_login_ip %}
+          <div class="meta-row">
+            <i class="bi bi-geo"></i>
+            <span>IP: {{ user.last_login_ip }}</span>
+          </div>
+          {% endif %}
+          {% if user.notes %}
+          <div class="meta-row">
+            <i class="bi bi-sticky"></i>
+            <span class="text-muted">{{ user.notes }}</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity stats -->
+    <div class="orbit-card mb-3">
+      <div class="orbit-card-header">
+        <i class="bi bi-bar-chart-line text-primary"></i>
+        <span class="fw-semibold">Activity Stats</span>
+      </div>
+      <div class="orbit-card-body">
+        <div class="row g-2">
+          {% set audit_total    = recent_audit | length %}
+          {% set audit_failures = recent_audit | selectattr('status','eq','failure') | list | length %}
+          {% for val, lbl in [
+            (audit_total,    "Audit Events (recent)"),
+            (audit_failures, "Failures (recent)"),
+            (user.failed_login_count or 0, "Failed Logins"),
+          ] %}
+          <div class="col-4">
+            <div class="stat-pill">
+              <div class="sp-val">{{ val }}</div>
+              <div class="sp-lbl">{{ lbl }}</div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick actions -->
+    {% if current_user.role == UserRole.SUPERADMIN %}
+    <div class="orbit-card">
+      <div class="orbit-card-header">
+        <i class="bi bi-lightning text-primary"></i>
+        <span class="fw-semibold">Actions</span>
+      </div>
+      <div class="orbit-card-body d-flex flex-column gap-2">
+
+        <a href="{{ url_for('users.edit_user', user_id=user.id) }}"
+           class="btn btn-outline-primary btn-sm">
+          <i class="bi bi-pencil me-2"></i>Edit Profile
+        </a>
+
+        <a href="{{ url_for('users.change_password', user_id=user.id) }}"
+           class="btn btn-outline-warning btn-sm">
+          <i class="bi bi-key me-2"></i>Reset Password
+        </a>
+
+        {% if current_user.id != user.id %}
+        <form method="POST"
+              action="{{ url_for('users.toggle_user', user_id=user.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <button type="submit"
+                  class="btn btn-sm w-100
+                    {{ 'btn-outline-danger' if user.is_active else 'btn-outline-success' }}"
+                  onclick="return confirm('{{ 'Deactivate' if user.is_active else 'Activate' }} this account?')">
+            <i class="bi bi-{{ 'pause-circle' if user.is_active else 'play-circle' }} me-2"></i>
+            {{ 'Deactivate Account' if user.is_active else 'Activate Account' }}
+          </button>
+        </form>
+
+        <form method="POST"
+              action="{{ url_for('users.delete_user', user_id=user.id) }}"
+              onsubmit="return confirm('Permanently delete user \'{{ user.username }}\'? This cannot be undone.')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <button type="submit" class="btn btn-outline-danger btn-sm w-100">
+            <i class="bi bi-trash3 me-2"></i>Delete User
+          </button>
+        </form>
+        {% endif %}
+
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+  <!-- ════════════════════════════════════════════════
+       RIGHT COLUMN — Activity log
+  ═══════════════════════════════════════════════════ -->
+  <div class="col-lg-8">
+    <div class="orbit-card">
+      <div class="orbit-card-header">
+        <i class="bi bi-journal-text text-primary"></i>
+        <span class="fw-semibold">Recent Activity</span>
+        <span class="ms-auto text-muted" style="font-size:0.75rem;">
+          Last {{ recent_audit | length }} entries
+        </span>
+      </div>
+
+      {% if recent_audit %}
+      <div class="table-responsive">
+        <table class="table orbit-table mb-0">
+          <thead>
+            <tr>
+              <th style="width:160px;">Timestamp</th>
+              <th>Action</th>
+              <th>Resource</th>
+              <th>IP</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for log in recent_audit %}
+            <tr class="{{ 'table-danger bg-opacity-10' if log.status=='failure' else '' }}">
+              <td class="font-monospace" style="font-size:0.7rem;white-space:nowrap;">
+                {{ log.created_at.strftime('%d %b %Y %H:%M:%S') if log.created_at else '—' }}
+              </td>
+              <td>
+                {% set ac = log.action | upper %}
+                <span class="action-badge
+                  {{ 'ab-create' if 'CREATE' in ac
+                     else 'ab-update' if 'UPDATE' in ac
+                     else 'ab-delete' if 'DELETE' in ac
+                     else 'ab-login'  if 'LOGIN'  in ac
+                     else 'ab-other' }}">
+                  {{ log.action }}
+                </span>
+              </td>
+              <td style="font-size:0.78rem;">
+                <div class="fw-semibold">{{ log.resource_name or '—' }}</div>
+                <div class="text-muted" style="font-size:0.7rem;">
+                  {{ log.resource_type or '' }}
+                </div>
+              </td>
+              <td class="font-monospace text-muted" style="font-size:0.72rem;">
+                {{ log.ip_address or '—' }}
+              </td>
+              <td>
+                {% if log.status == 'success' %}
+                <i class="bi bi-check-circle-fill text-success"></i>
+                {% else %}
+                <i class="bi bi-x-circle-fill text-danger"
+                   title="{{ log.status_detail or '' }}"></i>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="px-3 py-2 border-top" style="font-size:0.75rem; color:#94a3b8;">
+        Full audit history available in
+        <a href="{{ url_for('reports.audit_report', username=user.username) }}"
+           class="text-primary text-decoration-none">Audit Report</a>.
+      </div>
+
+      {% else %}
+      <div class="text-center py-5">
+        <i class="bi bi-journal-x fs-1 text-muted opacity-25"></i>
+        <p class="text-muted mt-3 mb-0">No activity recorded yet.</p>
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+
+</div>
+{% endblock %}
