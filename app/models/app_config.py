@@ -1,68 +1,92 @@
 """
-Key-value store for all first-time setup settings.
-All sensitive values are encrypted before storage.
+AppConfig model — dynamic runtime configuration stored in the database.
+
+All settings edited via the Settings UI or CLI are persisted here.
+The model provides class-level helpers so any service can read config
+without importing the full settings blueprint.
 """
+from datetime import datetime, timezone
 from app.extensions import db
-from app.utils.crypto import encrypt_field, decrypt_field
-from .mixins import TimestampMixin
-
-# Keys that must be encrypted at rest
-ENCRYPTED_KEYS = {
-    "LDAP_BIND_PASSWORD", "SMTP_PASSWORD", "WEBEX_ACCESS_TOKEN",
-    "OIDC_CLIENT_SECRET", "SAML_CERTIFICATE",
-}
 
 
-class AppConfig(TimestampMixin, db.Model):
+class AppConfig(db.Model):
     __tablename__ = "app_config"
 
-    id    = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    key   = db.Column(db.String(128), unique=True, nullable=False, index=True)
-    value = db.Column(db.Text, nullable=True)
+    id          = db.Column(db.Integer, primary_key=True)
+    key         = db.Column(db.String(128), unique=True, nullable=False, index=True)
+    value       = db.Column(db.Text, nullable=True)
+    is_encrypted= db.Column(db.Boolean, default=False, nullable=False)
+    description = db.Column(db.String(255), nullable=True)
+    updated_at  = db.Column(
+        db.DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    # ── Read helpers ────────────────────────────────────────────────────────
 
     @classmethod
     def get(cls, key: str, default: str = "") -> str:
-        """Retrieve and auto-decrypt a config value."""
+        """
+        Return the plaintext value for `key`, decrypting if necessary.
+        Returns `default` if the key does not exist.
+        """
         row = cls.query.filter_by(key=key).first()
         if row is None:
             return default
-        val = row.value or ""
-        if key in ENCRYPTED_KEYS:
-            val = decrypt_field(val) or ""
-        return val
-
-    @classmethod
-    def set(cls, key: str, value: str) -> None:
-        """Upsert a config value, encrypting sensitive keys."""
-        stored = encrypt_field(value) if key in ENCRYPTED_KEYS else value
-        row = cls.query.filter_by(key=key).first()
-        if row:
-            row.value = stored
-        else:
-            row = cls(key=key, value=stored)
-            db.session.add(row)
-        db.session.commit()
+        if row.is_encrypted and row.value:
+            from app.utils.crypto import decrypt
+            return decrypt(row.value)
+        return row.value or default
 
     @classmethod
     def get_all(cls) -> dict:
-        """Return all config as a dict (sensitive values decrypted)."""
+        """
+        Return all config values as a dict.
+        Encrypted values are returned as '***'.
+        """
+        rows = cls.query.order_by(cls.key.asc()).all()
         return {
-            row.key: (decrypt_field(row.value) if row.key in ENCRYPTED_KEYS else row.value)
-            for row in cls.query.all()
+            r.key: ("***" if r.is_encrypted else (r.value or ""))
+            for r in rows
         }
 
-    @classmethod
-    def bulk_set(cls, data: dict) -> None:
-        """Upsert multiple keys in a single transaction."""
-        for key, value in data.items():
-            stored = encrypt_field(str(value)) if key in ENCRYPTED_KEYS else str(value)
-            row = cls.query.filter_by(key=key).first()
-            if row:
-                row.value = stored
-            else:
-                db.session.add(cls(key=key, value=stored))
-        db.session.commit()
+    # ── Write helpers ────────────────────────────────────────────────────────
 
-    def __repr__(self) -> str:
-        safe = "***" if self.key in ENCRYPTED_KEYS else self.value
-        return f"<AppConfig {self.key}={safe}>"
+    @classmethod
+    def set(
+        cls,
+        key:         str,
+        value:       str,
+        encrypted:   bool = False,
+        description: str  = "",
+    ) -> "AppConfig":
+        """
+        Upsert a config key.  Commits immediately.
+        """
+        row = cls.query.filter_by(key=key).first()
+        if row is None:
+            row = cls(key=key)
+            db.session.add(row)
+
+        row.value        = value
+        row.is_encrypted = encrypted
+        row.updated_at   = datetime.now(timezone.utc)
+        if description:
+            row.description = description
+
+        db.session.commit()
+        return row
+
+    @classmethod
+    def delete(cls, key: str) -> bool:
+        """Delete a config key. Returns True if it existed."""
+        row = cls.query.filter_by(key=key).first()
+        if row:
+            db.session.delete(row)
+            db.session.commit()
+            return True
+        return False
+
+    def __repr__(self):
+        return f"<AppConfig {self.key}={'[enc]' if self.is_encrypted else self.value}>"
