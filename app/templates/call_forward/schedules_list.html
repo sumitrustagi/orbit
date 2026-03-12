@@ -1,0 +1,214 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}Call Forward Schedules{% endblock %}
+{% block page_title %}Call Forward Schedules{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">System / Call Forward</div>
+{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('call_forward.schedule_new') }}" class="btn btn-sm btn-primary">
+  <i class="bi bi-plus-lg me-1"></i>New Schedule
+</a>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  .status-badge { font-size:0.68rem; font-weight:700; border-radius:4px;
+                  padding:0.2rem 0.55rem; }
+  .sb-inactive  { background:#f1f5f9; color:#475569; }
+  .sb-active    { background:#dcfce7; color:#166534; }
+  .sb-ondemand  { background:#dbeafe; color:#1e40af; }
+  .sb-error     { background:#fee2e2; color:#991b1b; }
+  .day-chip     { font-size:0.65rem; font-weight:700; border-radius:3px;
+                  padding:0.1rem 0.4rem; background:#e2e8f0; color:#475569; }
+  .day-chip.on  { background:#dbeafe; color:#1e40af; }
+  .mono         { font-family:'Courier New',monospace; }
+</style>
+{% endblock %}
+
+
+{% block content %}
+
+<!-- ── Stat bar ── -->
+<div class="row g-3 mb-4">
+  {% for label, key, color, icon in [
+    ("Total",     "total",    "secondary","bi-calendar-week"),
+    ("Active",    "active",   "success",  "bi-check-circle"),
+    ("On-Demand", "ondemand", "primary",  "bi-lightning-fill"),
+    ("Errors",    "error",    "danger",   "bi-exclamation-triangle"),
+    ("Inactive",  "inactive", "secondary","bi-pause-circle"),
+  ] %}
+  <div class="col">
+    <div class="stat-widget">
+      <div class="stat-icon bg-{{ color }}-subtle text-{{ color }}">
+        <i class="bi {{ icon }}"></i>
+      </div>
+      <div>
+        <div class="stat-value">{{ stats[key] }}</div>
+        <div class="stat-label">{{ label }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ── Filter bar ── -->
+<div class="orbit-card mb-3 p-3">
+  <form method="GET" class="row g-2 align-items-end">
+    <div class="col-md-4">
+      <input type="text" name="search" value="{{ search }}"
+             class="form-control form-control-sm"
+             placeholder="Name, entity, destination…"/>
+    </div>
+    <div class="col-md-3">
+      <select name="status" class="form-select form-select-sm">
+        <option value="">All Statuses</option>
+        {% for st in ['inactive','active','ondemand','error'] %}
+        <option value="{{ st }}" {{ 'selected' if status_filter == st }}>
+          {{ st | title }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <select name="entity_type" class="form-select form-select-sm">
+        <option value="">All Entity Types</option>
+        {% for et in ['user','workspace','hunt_group','auto_attendant','call_queue'] %}
+        <option value="{{ et }}" {{ 'selected' if entity_filter == et }}>
+          {{ et.replace('_',' ') | title }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2 d-flex gap-2">
+      <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+        <i class="bi bi-funnel-fill me-1"></i>Filter
+      </button>
+      {% if search or status_filter or entity_filter %}
+      <a href="{{ url_for('call_forward.schedules_list') }}"
+         class="btn btn-outline-secondary btn-sm">Clear</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<!-- ── Table ── -->
+<div class="orbit-card">
+  <div class="orbit-card-header">
+    <i class="bi bi-arrow-left-right text-primary"></i>
+    <span class="fw-semibold">Schedules</span>
+    <span class="ms-auto text-muted" style="font-size:0.78rem;">
+      {{ schedules | length }} total
+    </span>
+  </div>
+
+  {% if schedules %}
+  <div class="table-responsive">
+    <table class="table orbit-table mb-0">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Entity</th>
+          <th>Forward To</th>
+          <th>Window</th>
+          <th>Active Days</th>
+          <th>Timezone</th>
+          <th>Status</th>
+          <th>Last Applied</th>
+          <th style="width:36px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in schedules %}
+        <tr class="{{ 'table-danger bg-danger bg-opacity-10' if s.status.value == 'error' else '' }}">
+
+          <td>
+            <a href="{{ url_for('call_forward.schedule_detail', sched_id=s.id) }}"
+               class="fw-semibold text-decoration-none text-dark">
+              {{ s.name }}
+            </a>
+            {% if not s.is_active %}
+            <span class="badge bg-secondary-subtle text-secondary ms-1"
+                  style="font-size:0.62rem;">Disabled</span>
+            {% endif %}
+          </td>
+
+          <td>
+            <div style="font-size:0.85rem;font-weight:600;">{{ s.entity_name }}</div>
+            <div class="text-muted" style="font-size:0.7rem;">
+              {{ s.entity_type.value.replace('_',' ') | title }}
+            </div>
+          </td>
+
+          <td class="mono">
+            {{ s.destination }}
+            <div class="text-muted" style="font-size:0.7rem;">
+              {{ s.forward_type.value.replace('_',' ') | title }}
+            </div>
+          </td>
+
+          <td class="mono" style="white-space:nowrap; font-size:0.8rem;">
+            {{ s.time_start.strftime('%H:%M') }} → {{ s.time_end.strftime('%H:%M') }}
+          </td>
+
+          <td>
+            <div class="d-flex flex-wrap gap-1">
+              {% for day in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
+              {% set idx = loop.index %}
+              {% set is_on = s.is_day_active(idx) %}
+              <span class="day-chip {{ 'on' if is_on else '' }}">{{ day }}</span>
+              {% endfor %}
+            </div>
+          </td>
+
+          <td style="font-size:0.78rem;">{{ s.timezone_name }}</td>
+
+          <td>
+            <span class="status-badge sb-{{ s.status.value }}">
+              {% if s.status.value == 'active' %}
+              <span class="spinner-grow spinner-grow-sm me-1"
+                    style="width:6px;height:6px;"></span>
+              {% endif %}
+              {{ s.status.value | title }}
+            </span>
+          </td>
+
+          <td class="text-muted" style="font-size:0.75rem;white-space:nowrap;">
+            {% if s.last_applied_at %}
+              {{ s.last_applied_at.strftime('%d %b %H:%M') }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+
+          <td>
+            <a href="{{ url_for('call_forward.schedule_detail', sched_id=s.id) }}"
+               class="btn btn-sm btn-light py-0 px-1">
+              <i class="bi bi-chevron-right" style="font-size:0.7rem;"></i>
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% else %}
+  <div class="text-center py-5">
+    <i class="bi bi-arrow-left-right fs-1 text-muted opacity-25"></i>
+    <h6 class="text-muted mt-3">No call forward schedules yet</h6>
+    <p class="text-muted small mb-4">
+      Create a schedule to automatically redirect calls outside business hours.
+    </p>
+    <a href="{{ url_for('call_forward.schedule_new') }}"
+       class="btn btn-primary px-4">
+      <i class="bi bi-plus-lg me-2"></i>Create First Schedule
+    </a>
+  </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}
