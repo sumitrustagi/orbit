@@ -13,14 +13,40 @@
 {% block head_extra %}
 <style>
   .form-card { max-width:720px; }
-  .section-hd { font-size:0.7rem; font-weight:700; text-transform:uppercase;
-                letter-spacing:0.1em; color:#94a3b8;
-                margin:1.5rem 0 0.75rem; padding-bottom:0.4rem;
-                border-bottom:1px solid #f1f5f9; }
+  .section-hd {
+    font-size:0.7rem; font-weight:700; text-transform:uppercase;
+    letter-spacing:0.1em; color:#94a3b8;
+    margin:1.5rem 0 0.75rem; padding-bottom:0.4rem;
+    border-bottom:1px solid #f1f5f9;
+  }
+  .role-option-card {
+    border:2px solid #e2e8f0; border-radius:10px;
+    padding:0.75rem 1rem; cursor:pointer;
+    transition:all 0.15s; user-select:none;
+  }
+  .role-option-card:hover { border-color:#93c5fd; }
+  .role-option-card.selected {
+    border-color:#1e40af; background:#eff6ff;
+  }
+  .role-option-card .role-name {
+    font-weight:700; font-size:0.85rem; color:#0f172a;
+  }
+  .role-option-card .role-desc {
+    font-size:0.72rem; color:#64748b; margin-top:2px;
+  }
   /* Password strength meter */
-  .strength-bar { height:5px; border-radius:3px; background:#e2e8f0;
-                  overflow:hidden; margin-top:4px; }
-  .strength-fill { height:100%; border-radius:3px; transition:width 0.3s, background 0.3s; }
+  .strength-bar {
+    height:5px; border-radius:3px;
+    background:#e2e8f0; overflow:hidden; margin-top:5px;
+  }
+  .strength-fill {
+    height:100%; border-radius:3px;
+    transition:width 0.3s, background 0.3s;
+    width:0%;
+  }
+  .strength-label {
+    font-size:0.7rem; color:#94a3b8; margin-top:3px;
+  }
 </style>
 {% endblock %}
 
@@ -29,31 +55,259 @@
 <div class="form-card">
   <div class="orbit-card">
     <div class="orbit-card-header">
-      <i class="bi bi-person-{{ 'pencil' if user else 'plus' }} text-primary"></i>
+      <i class="bi bi-person-{{ 'pencil' if user else 'plus-fill' }} text-primary"></i>
       <span class="fw-semibold">
         {{ 'Edit: ' + user.username if user else 'Create New Admin User' }}
       </span>
     </div>
     <div class="orbit-card-body">
 
-      <form method="POST" novalidate>
+      <form method="POST" novalidate id="userForm">
         {{ form.hidden_tag() }}
 
-        <!-- Identity -->
+        <!-- ═══════════════════════════════
+             IDENTITY
+        ════════════════════════════════════ -->
         <p class="section-hd">Identity</p>
-        <div class="row g-3 mb-3">
+        <div class="row g-3">
+
           <div class="col-md-5">
             {{ form.username.label(class="form-label fw-semibold") }}
             {{ form.username(class="form-control"
-                + (" is-invalid" if form.username.errors else "")) }}
+                + (" is-invalid" if form.username.errors else ""),
+                autocomplete="off") }}
             {% for e in form.username.errors %}
-              <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              <div class="invalid-feedback">{{ e }}</div>
+            {% endfor %}
+            <div class="form-text">Lowercase letters, numbers, hyphens and dots only.</div>
           </div>
+
           <div class="col-md-7">
             {{ form.email.label(class="form-label fw-semibold") }}
             {{ form.email(class="form-control"
                 + (" is-invalid" if form.email.errors else "")) }}
             {% for e in form.email.errors %}
-              <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              <div class="invalid-feedback">{{ e }}</div>
+            {% endfor %}
           </div>
-          
+
+          <div class="col-12">
+            {{ form.full_name.label(class="form-label fw-semibold") }}
+            {{ form.full_name(class="form-control", placeholder="Jane Smith") }}
+          </div>
+
+        </div>
+
+        <!-- ═══════════════════════════════
+             ROLE
+        ════════════════════════════════════ -->
+        <p class="section-hd mt-4">Role</p>
+
+        <!-- Visual role selector — updates the hidden select -->
+        <div class="row g-2 mb-1">
+          {% set role_meta = [
+            ("superadmin", "bi-shield-fill-check", "warning",
+             "Super Admin",
+             "Full access including user management, system settings, and all data operations."),
+            ("admin",      "bi-person-gear",        "primary",
+             "Admin",
+             "Full operational access — DID pools, SNOW, call forward, reports. No user management."),
+            ("readonly",   "bi-eye-fill",           "secondary",
+             "Read-Only",
+             "View dashboards and reports only. No create, edit or delete operations permitted."),
+          ] %}
+          {% for value, icon, col, label, desc in role_meta %}
+          <div class="col-md-4">
+            <div class="role-option-card
+                  {{ 'selected' if (form.role.data or 'admin') == value }}"
+                 id="roleCard-{{ value }}"
+                 onclick="selectRole('{{ value }}')">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <i class="bi {{ icon }} text-{{ col }}"></i>
+                <span class="role-name">{{ label }}</span>
+              </div>
+              <div class="role-desc">{{ desc }}</div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+
+        <!-- The actual select (hidden visually but submitted) -->
+        <div style="display:none;">
+          {{ form.role(id="roleSelect") }}
+        </div>
+        {% for e in form.role.errors %}
+          <div class="text-danger small mt-1">{{ e }}</div>
+        {% endfor %}
+
+        <!-- ═══════════════════════════════
+             PASSWORD  (create only)
+        ════════════════════════════════════ -->
+        {% if not user %}
+        <p class="section-hd mt-4">Password</p>
+        <div class="row g-3">
+
+          <div class="col-md-6">
+            {{ form.password.label(class="form-label fw-semibold") }}
+            <div class="input-group">
+              {{ form.password(class="form-control"
+                  + (" is-invalid" if form.password.errors else ""),
+                  id="passwordInput",
+                  oninput="ratePassword(this.value)") }}
+              <button type="button" class="btn btn-outline-secondary"
+                      onclick="togglePw('passwordInput', this)">
+                <i class="bi bi-eye"></i>
+              </button>
+            </div>
+            <!-- Strength meter -->
+            <div class="strength-bar">
+              <div class="strength-fill" id="strengthFill"></div>
+            </div>
+            <div class="strength-label" id="strengthLabel">Enter a password</div>
+            {% for e in form.password.errors %}
+              <div class="text-danger small mt-1">{{ e }}</div>
+            {% endfor %}
+          </div>
+
+          <div class="col-md-6">
+            {{ form.confirm_password.label(class="form-label fw-semibold") }}
+            <div class="input-group">
+              {{ form.confirm_password(class="form-control"
+                  + (" is-invalid" if form.confirm_password.errors else ""),
+                  id="confirmInput") }}
+              <button type="button" class="btn btn-outline-secondary"
+                      onclick="togglePw('confirmInput', this)">
+                <i class="bi bi-eye"></i>
+              </button>
+            </div>
+            {% for e in form.confirm_password.errors %}
+              <div class="invalid-feedback d-block">{{ e }}</div>
+            {% endfor %}
+          </div>
+
+          <div class="col-12">
+            <div class="alert alert-light py-2 d-flex gap-2 align-items-start"
+                 style="font-size:0.78rem; border:1px solid #e2e8f0;">
+              <i class="bi bi-info-circle-fill text-primary flex-shrink-0 mt-1"></i>
+              <span>
+                Minimum 10 characters, including uppercase, lowercase,
+                a digit and a special character.
+              </span>
+            </div>
+          </div>
+
+        </div>
+        {% endif %}
+
+        <!-- ═══════════════════════════════
+             STATUS & NOTES
+        ════════════════════════════════════ -->
+        <p class="section-hd mt-4">Status & Notes</p>
+        <div class="row g-3">
+
+          <div class="col-md-4 d-flex align-items-center">
+            <div class="form-check form-switch">
+              {{ form.is_active(class="form-check-input", role="switch",
+                                id="isActiveSwitch") }}
+              <label class="form-check-label fw-semibold" for="isActiveSwitch">
+                Account Active
+              </label>
+            </div>
+          </div>
+
+          <div class="col-12">
+            {{ form.notes.label(class="form-label fw-semibold") }}
+            {{ form.notes(class="form-control") }}
+          </div>
+
+        </div>
+
+        <!-- ═══════════════════════════════
+             ACTIONS
+        ════════════════════════════════════ -->
+        <div class="d-flex gap-2 mt-4 pt-3 border-top">
+          <button type="submit" class="btn btn-primary px-4">
+            <i class="bi bi-{{ 'floppy2' if user else 'person-plus-fill' }} me-2"></i>
+            {{ 'Save Changes' if user else 'Create User' }}
+          </button>
+          <a href="{{ url_for('users.user_detail', user_id=user.id)
+                    if user else url_for('users.list_users') }}"
+             class="btn btn-outline-secondary">Cancel</a>
+
+          {% if user and current_user.id != user.id %}
+          <div class="ms-auto">
+            <form method="POST"
+                  action="{{ url_for('users.delete_user', user_id=user.id) }}"
+                  onsubmit="return confirm('Permanently delete user \'{{ user.username }}\'?')">
+              {{ form.hidden_tag() }}
+              <button type="submit" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-trash3 me-1"></i>Delete User
+              </button>
+            </form>
+          </div>
+          {% endif %}
+        </div>
+
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+/* ── Role card selector ─────────────────────────────────────── */
+function selectRole(value) {
+  document.getElementById('roleSelect').value = value;
+  document.querySelectorAll('.role-option-card').forEach(card => {
+    card.classList.toggle('selected', card.id === `roleCard-${value}`);
+  });
+}
+
+/* Initialise role cards from the select value */
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('roleSelect');
+  if (sel) selectRole(sel.value || 'admin');
+});
+
+
+/* ── Toggle password visibility ────────────────────────────── */
+function togglePw(inputId, btn) {
+  const inp = document.getElementById(inputId);
+  if (!inp) return;
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+  btn.innerHTML = inp.type === 'text'
+    ? '<i class="bi bi-eye-slash"></i>'
+    : '<i class="bi bi-eye"></i>';
+}
+
+
+/* ── Password strength meter ────────────────────────────────── */
+function ratePassword(pw) {
+  const fill  = document.getElementById('strengthFill');
+  const label = document.getElementById('strengthLabel');
+  if (!fill || !label) return;
+
+  let score = 0;
+  if (pw.length >= 10)                          score++;
+  if (pw.length >= 14)                          score++;
+  if (/[A-Z]/.test(pw))                         score++;
+  if (/[a-z]/.test(pw))                         score++;
+  if (/\d/.test(pw))                            score++;
+  if (/[^A-Za-z0-9]/.test(pw))                 score++;
+
+  const pct  = Math.min(100, Math.round(score / 6 * 100));
+  const cfg  = score <= 2
+    ? ['#ef4444', 'Weak']
+    : score <= 4
+      ? ['#f59e0b', 'Moderate']
+      : ['#22c55e', 'Strong'];
+
+  fill.style.width      = pct + '%';
+  fill.style.background = cfg[0];
+  label.textContent     = pw.length === 0 ? 'Enter a password' : cfg[1];
+  label.style.color     = pw.length === 0 ? '#94a3b8' : cfg[0];
+}
+</script>
+{% endblock %}
