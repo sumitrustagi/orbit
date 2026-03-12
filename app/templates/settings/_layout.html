@@ -1,0 +1,55 @@
+{% extends "admin/_base.html" %}
+
+{% block head_extra %}
+<style>
+  .settings-tabs { border-bottom: 2px solid #e2e8f0; margin-bottom: 1.5rem; }
+  .settings-tabs .nav-link {
+    font-size: 0.82rem; font-weight: 600;
+    color: #64748b; padding: 0.6rem 1rem;
+    border: none; border-bottom: 3px solid transparent;
+    border-radius: 0; margin-bottom: -2px;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .settings-tabs .nav-link:hover { color: #1e40af; }
+  .settings-tabs .nav-link.active {
+    color: #1e40af; border-bottom-color: #1e40af;
+    background: transparent;
+  }
+  .settings-tabs .nav-link i { font-size: 0.9rem; margin-right: 5px; }
+  .settings-card { max-width: 840px; }
+  .section-hd {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.1em; color: #94a3b8;
+    margin: 1.5rem 0 0.75rem; padding-bottom: 0.4rem;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .form-label { font-weight: 600; font-size: 0.85rem; }
+  .form-text  { font-size: 0.72rem; color: #94a3b8; }
+</style>
+{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">System / Settings / {{ active_tab | title }}</div>
+{% endblock %}
+
+{% block content %}
+
+<!-- Settings tab bar -->
+<nav class="settings-tabs">
+  <ul class="nav">
+    {% for slug, icon, label in tabs %}
+    <li class="nav-item">
+      <a href="{{ url_for('settings.' + slug) }}"
+         class="nav-link {{ 'active' if active_tab == slug }}">
+        <i class="bi {{ icon }}"></i>{{ label }}
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</nav>
+
+<div class="settings-card">
+  {% block settings_content %}{% endblock %}
+</div>
+
+{% endblock %}
