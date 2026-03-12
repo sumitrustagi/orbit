@@ -1,0 +1,376 @@
+<!-- ═══════════════════════════════════════════════════════════════
+     Orbit — Main Sidebar Navigation
+     Included by app/templates/admin/_base.html
+     Active state is driven by request.blueprint
+════════════════════════════════════════════════════════════════ -->
+
+<nav class="orbit-sidebar" id="orbitSidebar">
+
+  <!-- ── Logo / Brand ──────────────────────────────────────────── -->
+  <div class="sidebar-brand">
+    <div class="brand-icon">
+      <i class="bi bi-broadcast-pin"></i>
+    </div>
+    <div class="brand-text">
+      <div class="brand-name">{{ app_name }}</div>
+      <div class="brand-sub">Webex Calling Platform</div>
+    </div>
+    <!-- Collapse toggle (mobile) -->
+    <button class="sidebar-collapse-btn d-lg-none"
+            onclick="toggleSidebar()"
+            aria-label="Close sidebar">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+
+  <!-- ── Navigation ────────────────────────────────────────────── -->
+  <div class="sidebar-scroll">
+    <ul class="sidebar-nav">
+
+      <!-- ─────────────────────────────────────────
+           OVERVIEW
+      ────────────────────────────────────────── -->
+      <li class="nav-section-label">Overview</li>
+
+      <li class="nav-item">
+        <a href="{{ url_for('dashboard.index') }}"
+           class="nav-link {{ 'active' if request.blueprint == 'dashboard' }}">
+          <i class="bi bi-speedometer2 nav-icon"></i>
+          <span>Dashboard</span>
+        </a>
+      </li>
+
+      <!-- ─────────────────────────────────────────
+           DID MANAGEMENT
+      ────────────────────────────────────────── -->
+      <li class="nav-section-label">DID Management</li>
+
+      <li class="nav-item">
+        <a href="{{ url_for('did_pool.list_pools') }}"
+           class="nav-link {{ 'active' if request.blueprint == 'did_pool' }}">
+          <i class="bi bi-layers nav-icon"></i>
+          <span>DID Pools</span>
+          {% if pool_count is defined %}
+          <span class="nav-badge">{{ pool_count }}</span>
+          {% endif %}
+        </a>
+      </li>
+
+      <li class="nav-item">
+        <a href="{{ url_for('did.list_dids') }}"
+           class="nav-link {{ 'active' if request.blueprint == 'did' }}">
+          <i class="bi bi-telephone-inbound nav-icon"></i>
+          <span>DIDs</span>
+          {% if available_did_count is defined %}
+          <span class="nav-badge bg-success-subtle text-success">
+            {{ available_did_count }}
+          </span>
+          {% endif %}
+        </a>
+      </li>
+
+      <!-- ─────────────────────────────────────────
+           SERVICENOW
+      ────────────────────────────────────────── -->
+      <li class="nav-section-label">ServiceNow</li>
+
+      <li class="nav-item">
+        <a href="{{ url_for('snow.dashboard') }}"
+           class="nav-link {{ 'active' if request.blueprint == 'snow' }}">
+          <i class="bi bi-ticket-detailed nav-icon"></i>
+          <span>SNOW Requests</span>
+          {% if pending_snow_count is defined and pending_snow_count > 0 %}
+          <span class="nav-badge bg-warning-subtle text-warning">
+            {{ pending_snow_count }}
+          </span>
+          {% endif %}
+        </a>
+      </li>
+
+      <!-- ─────────────────────────────────────────
+           CALL FORWARD
+      ────────────────────────────────────────── -->
+      <li class="nav-section-label">Call Forward</li>
+
+      <li class="nav-item">
+        <a href="{{ url_for('call_forward.list_schedules') }}"
+           class="nav-link {{ 'active' if request.blueprint == 'call_forward' }}">
+          <i class="bi bi-arrow-left-right nav-icon"></i>
+          <span>Schedules</span>
+          {% if active_cf_count is defined and active_cf_count > 0 %}
+          <span class="nav-badge bg-success-subtle text-success">
+            {{ active_cf_count }}
+          </span>
+          {% endif %}
+        </a>
+      </li>
+
+      <!-- ─────────────────────────────────────────
+           REPORTS
+      ────────────────────────────────────────── -->
+      <li class="nav-section-label">Analytics</li>
+
+      <li class="nav-item">
+        <a href="{{ url_for('reports.did_utilisation') }}"
+           class="nav-link {{ 'active' if request.blueprint == 'reports' and 'utilisation' in request.path }}">
+          <i class="bi bi-bar-chart-line nav-icon"></i>
+          <span>DID Utilisation</span>
+        </a>
+      </li>
+
+      <li class="nav-item">
+        <a href="{{ url_for('reports.snow_report') }}"
+           class="nav-link {{ 'active' if request.blueprint == 'reports' and 'snow' in request.path }}">
+          <i class="bi bi-graph-up nav-icon"></i>
+          <span>SNOW Report</span>
+        </a>
+      </li>
+
+      <li class="nav-item">
+        <a href="{{ url_for('reports.call_forward_report') }}"
+           class="nav-link {{ 'active' if request.blueprint == 'reports' and 'call-forward' in request.path }}">
+          <i class="bi bi-activity nav-icon"></i>
+          <span>Call Forward Report</span>
+        </a>
+      </li>
+
+      <li class="nav-item">
+        <a href="{{ url_for('reports.audit_report') }}"
+           class="nav-link {{ 'active' if request.blueprint == 'reports' and 'audit' in request.path }}">
+          <i class="bi bi-shield-check nav-icon"></i>
+          <span>Audit Log</span>
+        </a>
+      </li>
+
+      <!-- ─────────────────────────────────────────
+           SYSTEM  (superadmin only)
+      ────────────────────────────────────────── -->
+      {% if current_user.is_authenticated and
+            current_user.role.value == 'superadmin' %}
+
+      <li class="nav-section-label">System</li>
+
+      <li class="nav-item">
+        <a href="{{ url_for('users.list_users') }}"
+           class="nav-link {{ 'active' if request.blueprint == 'users' }}">
+          <i class="bi bi-people nav-icon"></i>
+          <span>Users</span>
+        </a>
+      </li>
+
+      <li class="nav-item">
+        <a href="{{ url_for('settings.general') }}"
+           class="nav-link {{ 'active' if request.blueprint == 'settings' }}">
+          <i class="bi bi-gear nav-icon"></i>
+          <span>Settings</span>
+        </a>
+      </li>
+
+      <li class="nav-item">
+        <a href="{{ url_for('tasks.monitor') }}"
+           class="nav-link {{ 'active' if request.blueprint == 'tasks' }}">
+          <i class="bi bi-cpu nav-icon"></i>
+          <span>Task Monitor</span>
+        </a>
+      </li>
+
+      {% endif %}
+
+    </ul>
+  </div>
+
+  <!-- ── Sidebar footer — current user ─────────────────────────── -->
+  <div class="sidebar-footer">
+    {% if current_user.is_authenticated %}
+    <div class="sidebar-user">
+      <div class="su-avatar">
+        {{ (current_user.full_name or current_user.username)[0].upper() }}
+      </div>
+      <div class="su-info">
+        <div class="su-name">
+          {{ current_user.full_name or current_user.username }}
+        </div>
+        <div class="su-role">{{ current_user.role.value | title }}</div>
+      </div>
+      <a href="{{ url_for('auth.logout') }}"
+         class="su-logout"
+         title="Sign out">
+        <i class="bi bi-box-arrow-right"></i>
+      </a>
+    </div>
+    {% endif %}
+  </div>
+
+</nav>
+
+
+<!-- ── Sidebar CSS ────────────────────────────────────────────── -->
+<style>
+  /* Layout */
+  .orbit-sidebar {
+    width: 240px;
+    min-height: 100vh;
+    background: #0f172a;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    position: fixed;
+    top: 0; left: 0;
+    z-index: 1040;
+    transition: transform 0.25s ease;
+  }
+
+  /* Brand */
+  .sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 1.1rem 1.25rem;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    flex-shrink: 0;
+  }
+  .brand-icon {
+    width: 34px; height: 34px;
+    background: linear-gradient(135deg,#1e40af,#3b82f6);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem; color: #fff; flex-shrink: 0;
+  }
+  .brand-name {
+    font-size: 0.95rem; font-weight: 800;
+    color: #f1f5f9; letter-spacing: -0.01em;
+  }
+  .brand-sub {
+    font-size: 0.62rem; color: #64748b;
+    margin-top: 1px;
+  }
+  .sidebar-collapse-btn {
+    background: none; border: none; color: #94a3b8;
+    margin-left: auto; font-size: 1rem; cursor: pointer;
+  }
+
+  /* Scrollable nav area */
+  .sidebar-scroll {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0.75rem 0;
+    scrollbar-width: thin;
+    scrollbar-color: #334155 transparent;
+  }
+  .sidebar-scroll::-webkit-scrollbar { width: 4px; }
+  .sidebar-scroll::-webkit-scrollbar-thumb {
+    background: #334155; border-radius: 4px;
+  }
+
+  /* Nav */
+  .sidebar-nav {
+    list-style: none;
+    padding: 0; margin: 0;
+  }
+
+  /* Section labels */
+  .nav-section-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #475569;
+    padding: 1rem 1.25rem 0.3rem;
+  }
+
+  /* Nav links */
+  .nav-item { margin: 0.1rem 0.5rem; }
+  .nav-link {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: 8px;
+    color: #94a3b8;
+    font-size: 0.82rem;
+    font-weight: 500;
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+  }
+  .nav-link:hover {
+    background: rgba(255,255,255,0.06);
+    color: #e2e8f0;
+  }
+  .nav-link.active {
+    background: rgba(59,130,246,0.18);
+    color: #60a5fa;
+    font-weight: 700;
+  }
+  .nav-link.active .nav-icon { color: #3b82f6; }
+
+  /* Icons */
+  .nav-icon {
+    font-size: 1rem;
+    width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+    color: #64748b;
+    transition: color 0.15s;
+  }
+  .nav-link:hover .nav-icon { color: #94a3b8; }
+
+  /* Badges */
+  .nav-badge {
+    margin-left: auto;
+    font-size: 0.62rem;
+    font-weight: 700;
+    background: rgba(255,255,255,0.08);
+    color: #94a3b8;
+    border-radius: 20px;
+    padding: 0.1rem 0.45rem;
+    min-width: 20px;
+    text-align: center;
+  }
+
+  /* Footer */
+  .sidebar-footer {
+    border-top: 1px solid rgba(255,255,255,0.07);
+    padding: 0.875rem 1rem;
+    flex-shrink: 0;
+  }
+  .sidebar-user {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+  }
+  .su-avatar {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: linear-gradient(135deg,#1e40af,#3b82f6);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 0.8rem; flex-shrink: 0;
+  }
+  .su-info { flex: 1; min-width: 0; }
+  .su-name {
+    font-size: 0.78rem; font-weight: 700;
+    color: #e2e8f0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .su-role {
+    font-size: 0.65rem; color: #64748b;
+  }
+  .su-logout {
+    color: #64748b; font-size: 1rem;
+    text-decoration: none; flex-shrink: 0;
+    transition: color 0.15s;
+  }
+  .su-logout:hover { color: #ef4444; }
+
+  /* Mobile: hidden off-screen by default */
+  @media (max-width: 991px) {
+    .orbit-sidebar {
+      transform: translateX(-100%);
+    }
+    .orbit-sidebar.open {
+      transform: translateX(0);
+    }
+  }
+</style>
