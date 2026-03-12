@@ -1,0 +1,376 @@
+{% extends "admin/_base.html" %}
+{% block title %}Task Monitor{% endblock %}
+{% block page_title %}Task Monitor{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">System / Task Monitor</div>
+{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('tasks.history') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-clock-history me-1"></i>Execution History
+</a>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  /* KPI strip */
+  .kpi-strip  { display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.5rem; }
+  .kpi-tile   {
+    flex:1; min-width:160px; background:#fff;
+    border:1px solid #e2e8f0; border-radius:12px;
+    padding:1rem 1.25rem;
+  }
+  .kpi-tile .kv { font-size:1.6rem; font-weight:800; color:#0f172a; line-height:1; }
+  .kpi-tile .kl { font-size:0.7rem; font-weight:700; text-transform:uppercase;
+                  letter-spacing:0.07em; color:#64748b; margin-top:3px; }
+
+  /* Worker cards */
+  .worker-card {
+    background:#fff; border:1px solid #e2e8f0; border-radius:10px;
+    padding:1rem 1.25rem; margin-bottom:0.75rem;
+    display:flex; align-items:center; gap:1rem;
+  }
+  .worker-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+
+  /* Beat health */
+  .beat-badge {
+    display:inline-flex; align-items:center; gap:0.4rem;
+    font-size:0.78rem; font-weight:600; border-radius:8px;
+    padding:0.35rem 0.75rem;
+  }
+  .beat-alive  { background:#dcfce7; color:#166534; }
+  .beat-dead   { background:#fee2e2; color:#991b1b; }
+  .beat-unknown{ background:#f1f5f9; color:#475569; }
+
+  /* Task trigger buttons */
+  .task-group  { display:flex; flex-direction:column; gap:0.5rem; }
+  .trigger-row {
+    display:flex; align-items:center; justify-content:space-between;
+    background:#f8fafc; border:1px solid #f1f5f9; border-radius:8px;
+    padding:0.6rem 0.875rem;
+  }
+  .trigger-row .tl { font-size:0.82rem; font-weight:600; }
+  .trigger-row .tq {
+    font-size:0.68rem; font-family:monospace; background:#e2e8f0;
+    border-radius:4px; padding:0.1rem 0.4rem; color:#475569;
+  }
+
+  /* Recent log table */
+  .action-badge { font-size:0.65rem; font-weight:700; border-radius:4px;
+                  padding:0.15rem 0.4rem; }
+  .ab-ok   { background:#dcfce7; color:#166534; }
+  .ab-fail { background:#fee2e2; color:#991b1b; }
+  .ab-info { background:#dbeafe; color:#1e40af; }
+</style>
+{% endblock %}
+
+
+{% block content %}
+
+<!-- ═══════════════════════════════════════════════════════
+     KPI STRIP (populated by JS)
+══════════════════════════════════════════════════════════ -->
+<div class="kpi-strip" id="kpiStrip">
+  {% for id, val, label in [
+    ('kpiWorkers',  '…', 'Online Workers'),
+    ('kpiActive',   '…', 'Active Tasks'),
+    ('kpiReserved', '…', 'Reserved Tasks'),
+  ] %}
+  <div class="kpi-tile">
+    <div class="kv" id="{{ id }}">{{ val }}</div>
+    <div class="kl">{{ label }}</div>
+  </div>
+  {% endfor %}
+
+  <!-- Beat health KPI -->
+  <div class="kpi-tile">
+    <div id="beatHealthBadge" class="beat-badge beat-unknown">
+      <span class="spinner-border spinner-border-sm"></span>
+      Checking…
+    </div>
+    <div class="kl mt-2">Beat Health</div>
+    <div id="beatLastSeen" class="text-muted" style="font-size:0.7rem;margin-top:2px;"></div>
+  </div>
+</div>
+
+<div class="row g-3">
+
+  <!-- ══════════════════════════════════════════════════
+       LEFT — Workers + Manual Triggers
+  ════════════════════════════════════════════════════ -->
+  <div class="col-lg-5">
+
+    <!-- Workers -->
+    <div class="orbit-card mb-3">
+      <div class="orbit-card-header">
+        <i class="bi bi-cpu text-primary"></i>
+        <span class="fw-semibold">Celery Workers</span>
+        <button class="btn btn-sm btn-outline-secondary ms-auto py-0"
+                onclick="refreshStatus()">
+          <i class="bi bi-arrow-clockwise"></i>
+        </button>
+      </div>
+      <div class="orbit-card-body" id="workersPanel">
+        <div class="text-center py-3 text-muted">
+          <span class="spinner-border spinner-border-sm me-2"></span>Loading…
+        </div>
+      </div>
+    </div>
+
+    <!-- Manual triggers -->
+    <div class="orbit-card">
+      <div class="orbit-card-header">
+        <i class="bi bi-lightning-charge text-warning"></i>
+        <span class="fw-semibold">Manual Triggers</span>
+      </div>
+      <div class="orbit-card-body">
+        <div class="task-group">
+          {% for name, meta in triggerable.items() %}
+          <div class="trigger-row">
+            <div>
+              <div class="tl">{{ meta.label }}</div>
+              <span class="tq">{{ meta.queue }}</span>
+            </div>
+            <button class="btn btn-sm btn-primary py-0 px-2"
+                    onclick="triggerTask('{{ name }}', this)"
+                    title="Queue now">
+              <i class="bi bi-play-fill" style="font-size:0.75rem;"></i>
+            </button>
+          </div>
+          {% endfor %}
+        </div>
+        <div id="triggerResult" class="mt-2 small"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══════════════════════════════════════════════════
+       RIGHT — Recent executions
+  ════════════════════════════════════════════════════ -->
+  <div class="col-lg-7">
+    <div class="orbit-card">
+      <div class="orbit-card-header">
+        <i class="bi bi-activity text-primary"></i>
+        <span class="fw-semibold">Recent Executions</span>
+        <button class="btn btn-sm btn-outline-secondary ms-auto py-0"
+                onclick="refreshRecent()">
+          <i class="bi bi-arrow-clockwise"></i>
+        </button>
+        <a href="{{ url_for('tasks.history') }}"
+           class="btn btn-sm btn-outline-primary ms-2 py-0"
+           style="font-size:0.75rem;">Full History</a>
+      </div>
+
+      <div id="recentPanel">
+        <div class="text-center py-4 text-muted">
+          <span class="spinner-border spinner-border-sm me-2"></span>Loading…
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+/* ═══════════════════════════════════════════════════════════
+   Worker status
+═══════════════════════════════════════════════════════════ */
+async function refreshStatus() {
+  try {
+    const data = await (await fetch('/admin/tasks/api/status')).json();
+
+    document.getElementById('kpiWorkers').textContent  = data.worker_count;
+    document.getElementById('kpiActive').textContent   =
+      data.workers.reduce((a,w) => a + w.active,   0);
+    document.getElementById('kpiReserved').textContent =
+      data.workers.reduce((a,w) => a + w.reserved, 0);
+
+    const panel = document.getElementById('workersPanel');
+    if (!data.workers.length) {
+      panel.innerHTML = `
+        <div class="text-center py-3">
+          <i class="bi bi-exclamation-triangle-fill text-warning fs-4"></i>
+          <p class="text-muted mt-2 mb-0" style="font-size:0.82rem;">
+            No workers online.
+          </p>
+        </div>`;
+      return;
+    }
+
+    panel.innerHTML = data.workers.map(w => `
+      <div class="worker-card">
+        <span class="worker-dot" style="background:${w.active ? '#22c55e' : '#94a3b8'};"></span>
+        <div style="flex:1;min-width:0;">
+          <div class="fw-semibold" style="font-size:0.82rem;
+               word-break:break-all;">${w.name}</div>
+          <div class="text-muted" style="font-size:0.72rem;">
+            Queues: ${w.queues.join(', ') || '—'}
+          </div>
+        </div>
+        <div class="text-end flex-shrink-0">
+          <div class="fw-bold text-primary">${w.active}</div>
+          <div style="font-size:0.68rem;color:#94a3b8;">active</div>
+        </div>
+        <div class="text-end flex-shrink-0">
+          <div class="fw-bold text-secondary">${w.reserved}</div>
+          <div style="font-size:0.68rem;color:#94a3b8;">queued</div>
+        </div>
+        <div class="text-end flex-shrink-0">
+          <div class="fw-bold text-muted">${w.pool_size}</div>
+          <div style="font-size:0.68rem;color:#94a3b8;">pool</div>
+        </div>
+      </div>
+    `).join('');
+
+  } catch(e) {
+    document.getElementById('workersPanel').innerHTML =
+      '<p class="text-danger small p-3">Failed to fetch worker status.</p>';
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   Beat health
+═══════════════════════════════════════════════════════════ */
+async function refreshBeatHealth() {
+  try {
+    const data  = await (await fetch('/admin/tasks/api/beat-health')).json();
+    const badge = document.getElementById('beatHealthBadge');
+    const sub   = document.getElementById('beatLastSeen');
+
+    if (data.alive) {
+      badge.className   = 'beat-badge beat-alive';
+      badge.innerHTML   = '<i class="bi bi-check-circle-fill"></i> Beat Alive';
+    } else {
+      badge.className   = 'beat-badge beat-dead';
+      badge.innerHTML   = '<i class="bi bi-x-circle-fill"></i> Beat Offline';
+    }
+
+    if (data.last_ping) {
+      const age = Math.round(data.age_seconds / 60);
+      sub.textContent = `Last ping ${age}m ago`;
+    } else {
+      sub.textContent = 'No ping recorded';
+    }
+  } catch(e) {
+    document.getElementById('beatHealthBadge').className = 'beat-badge beat-unknown';
+    document.getElementById('beatHealthBadge').textContent = 'Unknown';
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   Recent executions
+═══════════════════════════════════════════════════════════ */
+async function refreshRecent() {
+  try {
+    const logs  = await (await fetch('/admin/tasks/api/recent')).json();
+    const panel = document.getElementById('recentPanel');
+
+    if (!logs.length) {
+      panel.innerHTML = '<p class="text-center text-muted py-4 small">No executions recorded yet.</p>';
+      return;
+    }
+
+    const COLOR = { success:'ab-ok', failure:'ab-fail' };
+
+    panel.innerHTML = `
+      <div class="table-responsive">
+        <table class="table orbit-table mb-0" style="font-size:0.78rem;">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Action</th>
+              <th>Resource</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${logs.map(l => `
+              <tr class="${l.status === 'failure' ? 'table-danger bg-opacity-10' : ''}">
+                <td class="font-monospace" style="font-size:0.7rem;white-space:nowrap;">
+                  ${l.created_at}
+                </td>
+                <td>
+                  <span class="action-badge ${COLOR[l.status] || 'ab-info'}">
+                    ${l.action}
+                  </span>
+                </td>
+                <td>
+                  <div class="fw-semibold">${l.resource_name || '—'}</div>
+                  <div class="text-muted" style="font-size:0.7rem;">
+                    ${l.resource_type}
+                  </div>
+                </td>
+                <td>
+                  ${l.status === 'success'
+                    ? '<i class="bi bi-check-circle-fill text-success"></i>'
+                    : '<i class="bi bi-x-circle-fill text-danger"></i>'
+                  }
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch(e) {
+    document.getElementById('recentPanel').innerHTML =
+      '<p class="text-danger small p-3">Failed to load recent executions.</p>';
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   Manual trigger
+═══════════════════════════════════════════════════════════ */
+async function triggerTask(name, btn) {
+  const result = document.getElementById('triggerResult');
+  btn.disabled = true;
+  result.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Queuing…</span>';
+
+  try {
+    const resp = await fetch(`/admin/tasks/trigger/${name}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken':  '{{ csrf_token() }}',
+      },
+    });
+    const data = await resp.json();
+    result.innerHTML = data.success
+      ? `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>${data.message}</span>`
+      : `<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>${data.message}</span>`;
+
+    if (data.success) {
+      setTimeout(() => { refreshStatus(); refreshRecent(); }, 2000);
+    }
+  } catch(e) {
+    result.innerHTML = '<span class="text-danger">Request failed.</span>';
+  }
+
+  btn.disabled = false;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   Boot
+═══════════════════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', () => {
+  refreshStatus();
+  refreshBeatHealth();
+  refreshRecent();
+
+  // Auto-refresh every 30 seconds
+  setInterval(() => {
+    refreshStatus();
+    refreshBeatHealth();
+    refreshRecent();
+  }, 30_000);
+});
+</script>
+{% endblock %}
