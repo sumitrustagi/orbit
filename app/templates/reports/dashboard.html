@@ -1,0 +1,385 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}Analytics Dashboard{% endblock %}
+{% block page_title %}Analytics Dashboard{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">Reports / Dashboard</div>
+{% endblock %}
+
+{% block topbar_actions %}
+<div class="d-flex gap-2 align-items-center">
+  <!-- Days range selector -->
+  <div class="btn-group btn-group-sm">
+    {% for d, lbl in [(7,'7d'),(30,'30d'),(90,'90d')] %}
+    <a href="?days={{ d }}"
+       class="btn {{ 'btn-primary' if days == d else 'btn-outline-secondary' }}">
+      {{ lbl }}
+    </a>
+    {% endfor %}
+  </div>
+  <span class="text-muted" style="font-size:0.72rem;">
+    Generated {{ summary.generated_at }}
+  </span>
+</div>
+{% endblock %}
+
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<style>
+  .kpi-card {
+    background:#fff; border:1px solid #e2e8f0; border-radius:12px;
+    padding:1.1rem 1.25rem; display:flex; align-items:center; gap:1rem;
+    transition:box-shadow 0.2s;
+  }
+  .kpi-card:hover { box-shadow:0 4px 18px rgba(30,64,175,0.08); }
+  .kpi-icon {
+    width:46px; height:46px; border-radius:10px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:1.3rem; flex-shrink:0;
+  }
+  .kpi-value { font-size:1.6rem; font-weight:800; line-height:1; color:#0f172a; }
+  .kpi-label { font-size:0.72rem; font-weight:600; text-transform:uppercase;
+               letter-spacing:0.07em; color:#64748b; margin-top:2px; }
+  .kpi-sub   { font-size:0.75rem; color:#94a3b8; margin-top:3px; }
+  .chart-card { background:#fff; border:1px solid #e2e8f0;
+                border-radius:12px; padding:1.25rem; }
+  .chart-title { font-size:0.78rem; font-weight:700; text-transform:uppercase;
+                 letter-spacing:0.07em; color:#64748b; margin-bottom:0.875rem; }
+  .section-label {
+    font-size:0.7rem; font-weight:700; text-transform:uppercase;
+    letter-spacing:0.1em; color:#94a3b8;
+    margin:1.5rem 0 0.75rem;
+  }
+</style>
+{% endblock %}
+
+
+{% block content %}
+
+<!-- ══════════════════════════════════════════════════════════════
+     KPI ROW 1 — DID
+══════════════════════════════════════════════════════════════════ -->
+<p class="section-label">DID Management</p>
+<div class="row g-3 mb-2">
+  {% for icon, bg, text_col, value, label, sub in [
+    ("bi-telephone-fill", "bg-primary-subtle", "text-primary",
+      summary.total_dids, "Total DIDs",
+      summary.total_pools|string + " pools"),
+    ("bi-check-circle-fill", "bg-success-subtle", "text-success",
+      summary.assigned_dids, "Assigned",
+      summary.did_utilisation|string + "% utilisation"),
+    ("bi-circle", "bg-secondary-subtle", "text-secondary",
+      summary.available_dids, "Available", "Ready to assign"),
+    ("bi-clock-history", "bg-warning-subtle", "text-warning",
+      summary.quarantine_dids, "Quarantine", "Cooling down"),
+  ] %}
+  <div class="col-xl-3 col-md-6">
+    <div class="kpi-card">
+      <div class="kpi-icon {{ bg }} {{ text_col }}">
+        <i class="bi {{ icon }}"></i>
+      </div>
+      <div>
+        <div class="kpi-value">{{ value }}</div>
+        <div class="kpi-label">{{ label }}</div>
+        <div class="kpi-sub">{{ sub }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     KPI ROW 2 — SNOW
+══════════════════════════════════════════════════════════════════ -->
+<p class="section-label">ServiceNow Provisioning</p>
+<div class="row g-3 mb-2">
+  {% for icon, bg, text_col, value, label, sub in [
+    ("bi-ticket-fill",      "bg-primary-subtle",   "text-primary",
+      summary.snow_total, "Total Requests", summary.snow_last_30d|string + " last 30d"),
+    ("bi-check2-circle",    "bg-success-subtle",   "text-success",
+      summary.snow_fulfilled, "Fulfilled", summary.snow_success_rate|string + "% success rate"),
+    ("bi-hourglass-split",  "bg-warning-subtle",   "text-warning",
+      summary.snow_pending, "Pending", "Awaiting fulfillment"),
+    ("bi-x-circle-fill",    "bg-danger-subtle",    "text-danger",
+      summary.snow_failed, "Failed", "Needs attention"),
+  ] %}
+  <div class="col-xl-3 col-md-6">
+    <div class="kpi-card">
+      <div class="kpi-icon {{ bg }} {{ text_col }}">
+        <i class="bi {{ icon }}"></i>
+      </div>
+      <div>
+        <div class="kpi-value">{{ value }}</div>
+        <div class="kpi-label">{{ label }}</div>
+        <div class="kpi-sub">{{ sub }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     KPI ROW 3 — Call Forward + Audit + Users
+══════════════════════════════════════════════════════════════════ -->
+<p class="section-label">Call Forward / Audit / Users</p>
+<div class="row g-3 mb-4">
+  {% for icon, bg, text_col, value, label, sub in [
+    ("bi-arrow-left-right",  "bg-primary-subtle",   "text-primary",
+      summary.cf_total, "CF Schedules",
+      summary.cf_forwarding|string + " currently forwarding"),
+    ("bi-lightning-fill",    "bg-warning-subtle",   "text-warning",
+      summary.cf_active, "CF Active",
+      summary.cf_forwarding|string + " live"),
+    ("bi-journal-text",      "bg-secondary-subtle", "text-secondary",
+      summary.audit_last_30d, "Audit Events",
+      summary.audit_failures|string + " failures (30d)"),
+    ("bi-people-fill",       "bg-primary-subtle",   "text-primary",
+      summary.total_users, "Admin Users",
+      summary.active_users|string + " active"),
+  ] %}
+  <div class="col-xl-3 col-md-6">
+    <div class="kpi-card">
+      <div class="kpi-icon {{ bg }} {{ text_col }}">
+        <i class="bi {{ icon }}"></i>
+      </div>
+      <div>
+        <div class="kpi-value">{{ value }}</div>
+        <div class="kpi-label">{{ label }}</div>
+        <div class="kpi-sub">{{ sub }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     CHARTS ROW 1
+══════════════════════════════════════════════════════════════════ -->
+<div class="row g-3 mb-3">
+
+  <!-- DID Status doughnut -->
+  <div class="col-md-4">
+    <div class="chart-card h-100">
+      <div class="chart-title">DID Status Breakdown</div>
+      <canvas id="didStatusChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- SNOW Daily Trend line -->
+  <div class="col-md-8">
+    <div class="chart-card h-100">
+      <div class="chart-title">SNOW Requests — Last {{ days }} Days</div>
+      <canvas id="snowTrendChart" height="220"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     CHARTS ROW 2
+══════════════════════════════════════════════════════════════════ -->
+<div class="row g-3 mb-3">
+
+  <!-- DID Pool utilisation bars -->
+  <div class="col-md-6">
+    <div class="chart-card h-100">
+      <div class="chart-title">DID Pool Utilisation</div>
+      <canvas id="poolChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- Audit trend -->
+  <div class="col-md-6">
+    <div class="chart-card h-100">
+      <div class="chart-title">Audit Events — Last {{ days }} Days</div>
+      <canvas id="auditTrendChart" height="220"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     QUICK LINKS
+══════════════════════════════════════════════════════════════════ -->
+<div class="row g-3">
+  {% for href, icon, color, title, sub in [
+    (url_for('reports.did_report'),          'bi-telephone-fill',   'primary',
+     'DID Report',             'Pool utilisation, quarantine, trends'),
+    (url_for('reports.snow_report'),         'bi-ticket-fill',      'success',
+     'SNOW Report',            'Fulfillment analytics, failed requests'),
+    (url_for('reports.call_forward_report'), 'bi-arrow-left-right', 'warning',
+     'Call Forward Report',    'Schedule execution history'),
+    (url_for('reports.audit_report'),        'bi-journal-text',     'secondary',
+     'Audit Report',           'Full filterable audit log + export'),
+  ] %}
+  <div class="col-md-3">
+    <a href="{{ href }}" class="text-decoration-none">
+      <div class="kpi-card" style="cursor:pointer;">
+        <div class="kpi-icon bg-{{ color }}-subtle text-{{ color }}">
+          <i class="bi {{ icon }}"></i>
+        </div>
+        <div>
+          <div class="fw-bold" style="font-size:0.9rem;">{{ title }}</div>
+          <div class="kpi-sub">{{ sub }}</div>
+        </div>
+        <i class="bi bi-chevron-right ms-auto text-muted opacity-50"></i>
+      </div>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+const DAYS = {{ days }};
+const PALETTE = {
+  blue:       '#3b82f6',
+  green:      '#22c55e',
+  amber:      '#f59e0b',
+  red:        '#ef4444',
+  slate:      '#94a3b8',
+  indigo:     '#6366f1',
+  teal:       '#14b8a6',
+  blueAlpha:  'rgba(59,130,246,0.15)',
+  greenAlpha: 'rgba(34,197,94,0.15)',
+  redAlpha:   'rgba(239,68,68,0.15)',
+};
+
+const GRID_COLOR  = 'rgba(226,232,240,0.7)';
+const FONT_FAMILY = "'Inter','system-ui',sans-serif";
+
+Chart.defaults.font.family = FONT_FAMILY;
+Chart.defaults.font.size   = 11;
+
+/* ── DID Status doughnut ──────────────────────────────────────── */
+async function buildDidStatus() {
+  const data = await (await fetch('/admin/reports/api/did-status')).json();
+  const labels = data.map(d => d.status.charAt(0).toUpperCase() + d.status.slice(1));
+  const values = data.map(d => d.count);
+  const colors = data.map(d =>
+    d.status === 'assigned'    ? PALETTE.blue  :
+    d.status === 'available'   ? PALETTE.green :
+    d.status === 'quarantine'  ? PALETTE.amber :
+    PALETTE.slate
+  );
+
+  new Chart(document.getElementById('didStatusChart'), {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 2 }] },
+    options: {
+      cutout: '70%',
+      plugins: {
+        legend: { position: 'bottom', labels: { usePointStyle: true, padding: 14 } },
+      },
+    },
+  });
+}
+
+/* ── SNOW daily trend ─────────────────────────────────────────── */
+async function buildSnowTrend() {
+  const data = await (await fetch(`/admin/reports/api/snow-trend?days=${DAYS}`)).json();
+  const labels    = data.map(d => d.date);
+  const total     = data.map(d => d.total);
+  const fulfilled = data.map(d => d.fulfilled);
+  const failed    = data.map(d => d.failed);
+
+  new Chart(document.getElementById('snowTrendChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label:'Total',     data:total,     backgroundColor:PALETTE.blueAlpha,
+          borderColor:PALETTE.blue, borderWidth:2, type:'line', fill:true,
+          tension:0.3, pointRadius:2 },
+        { label:'Fulfilled', data:fulfilled, backgroundColor:PALETTE.green,
+          borderRadius:3, stack:'s' },
+        { label:'Failed',    data:failed,    backgroundColor:PALETTE.red,
+          borderRadius:3, stack:'s' },
+      ],
+    },
+    options: {
+      interaction: { mode:'index' },
+      plugins: { legend: { position:'top', labels:{ usePointStyle:true } } },
+      scales: {
+        x: { grid:{ color:GRID_COLOR }, ticks:{ maxTicksLimit:10 } },
+        y: { grid:{ color:GRID_COLOR }, beginAtZero:true,
+             ticks:{ precision:0 } },
+      },
+    },
+  });
+}
+
+/* ── DID Pool horizontal bar ──────────────────────────────────── */
+async function buildPoolChart() {
+  const data   = await (await fetch('/admin/reports/api/did-pool')).json();
+  const labels = data.map(d => d.pool);
+  const pcts   = data.map(d => d.pct);
+  const colors = pcts.map(p => p >= 90 ? PALETTE.red : p >= 70 ? PALETTE.amber : PALETTE.blue);
+
+  new Chart(document.getElementById('poolChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label:           'Utilisation %',
+        data:            pcts,
+        backgroundColor: colors,
+        borderRadius:    4,
+      }],
+    },
+    options: {
+      indexAxis: 'y',
+      plugins: { legend: { display:false } },
+      scales: {
+        x: { max:100, grid:{ color:GRID_COLOR },
+             ticks:{ callback: v => v + '%' } },
+        y: { grid:{ display:false } },
+      },
+    },
+  });
+}
+
+/* ── Audit trend ──────────────────────────────────────────────── */
+async function buildAuditTrend() {
+  const data     = await (await fetch(`/admin/reports/api/audit-trend?days=${DAYS}`)).json();
+  const labels   = data.map(d => d.date);
+  const totals   = data.map(d => d.total);
+  const failures = data.map(d => d.failures);
+
+  new Chart(document.getElementById('auditTrendChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label:'Total Events', data:totals,   borderColor:PALETTE.indigo,
+          backgroundColor:'rgba(99,102,241,0.1)', fill:true,
+          tension:0.3, pointRadius:2 },
+        { label:'Failures',     data:failures, borderColor:PALETTE.red,
+          backgroundColor:PALETTE.redAlpha, fill:true,
+          tension:0.3, pointRadius:2 },
+      ],
+    },
+    options: {
+      interaction: { mode:'index' },
+      plugins: { legend:{ position:'top', labels:{ usePointStyle:true } } },
+      scales: {
+        x: { grid:{ color:GRID_COLOR }, ticks:{ maxTicksLimit:10 } },
+        y: { grid:{ color:GRID_COLOR }, beginAtZero:true,
+             ticks:{ precision:0 } },
+      },
+    },
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  buildDidStatus();
+  buildSnowTrend();
+  buildPoolChart();
+  buildAuditTrend();
+});
+</script>
+{% endblock %}
