@@ -1,0 +1,93 @@
+{% extends "settings/_layout.html" %}
+{% block title %}Security Settings{% endblock %}
+{% block page_title %}System Settings{% endblock %}
+
+{% block settings_content %}
+<div class="orbit-card">
+  <div class="orbit-card-header">
+    <i class="bi bi-shield-lock text-primary"></i>
+    <span class="fw-semibold">Security Policy</span>
+  </div>
+  <div class="orbit-card-body">
+    <form method="POST" novalidate>
+      {{ form.hidden_tag() }}
+
+      <p class="section-hd">Password Policy</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-4">
+          {{ form.min_password_length.label(class="form-label") }}
+          {{ form.min_password_length(class="form-control") }}
+        </div>
+        <div class="col-md-8 d-flex align-items-end flex-wrap gap-3 pb-1">
+          {% for field, label in [
+            (form.require_uppercase, "Uppercase"),
+            (form.require_lowercase, "Lowercase"),
+            (form.require_digit,     "Digit"),
+            (form.require_special,   "Special char"),
+          ] %}
+          <div class="form-check form-switch">
+            {{ field(class="form-check-input", role="switch") }}
+            <label class="form-check-label" for="{{ field.id }}">{{ label }}</label>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <p class="section-hd">Account Lockout</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-4">
+          {{ form.max_login_attempts.label(class="form-label") }}
+          {{ form.max_login_attempts(class="form-control") }}
+          <div class="form-text">Consecutive failures before lockout.</div>
+        </div>
+        <div class="col-md-4">
+          {{ form.lockout_duration_minutes.label(class="form-label") }}
+          {{ form.lockout_duration_minutes(class="form-control") }}
+        </div>
+      </div>
+
+      <p class="section-hd">Session</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-4">
+          {{ form.session_timeout_minutes.label(class="form-label") }}
+          {{ form.session_timeout_minutes(class="form-control") }}
+        </div>
+        <div class="col-md-4 d-flex align-items-end pb-1">
+          <div class="form-check form-switch">
+            {{ form.force_https(class="form-check-input", role="switch") }}
+            <label class="form-check-label" for="{{ form.force_https.id }}">
+              Force HTTPS / Secure Cookies
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <p class="section-hd">Audit & API</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-4">
+          {{ form.audit_retention_days.label(class="form-label") }}
+          {{ form.audit_retention_days(class="form-control") }}
+          <div class="form-text">
+            Audit entries older than this are purged by the daily clean-up task.
+          </div>
+        </div>
+        <div class="col-md-4 d-flex align-items-end pb-1">
+          <div class="form-check form-switch">
+            {{ form.allow_api_tokens(class="form-check-input", role="switch") }}
+            <label class="form-check-label" for="{{ form.allow_api_tokens.id }}">
+              Allow API Token Authentication
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="border-top pt-3 mt-2">
+        <button type="submit" class="btn btn-primary px-4">
+          <i class="bi bi-floppy2 me-2"></i>Save Security Settings
+        </button>
+      </div>
+
+    </form>
+  </div>
+</div>
+{% endblock %}
