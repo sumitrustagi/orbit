@@ -1,51 +1,41 @@
 """
-All Flask extensions are instantiated here (without app binding)
-and imported by the factory in __init__.py.
-This prevents circular imports across blueprints.
+Orbit — Flask Extension Instances
+===================================
+All extension objects are created here without an app instance.
+They are bound to the app inside create_app() via their init_app() methods.
+
+Import from this module everywhere else to avoid circular imports:
+
+    from app.extensions import db, login_manager, cache, ...
 """
-from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
-from flask_login import LoginManager
-from flask_bcrypt import Bcrypt
-from flask_mail import Mail
-from flask_wtf.csrf import CSRFProtect
-from flask_limiter import Limiter
+from flask_sqlalchemy   import SQLAlchemy
+from flask_migrate      import Migrate
+from flask_login        import LoginManager
+from flask_wtf.csrf     import CSRFProtect
+from flask_limiter      import Limiter
 from flask_limiter.util import get_remote_address
-from flask_caching import Cache
-from flask_cors import CORS
-from celery import Celery
+from flask_caching      import Cache
+from flask_mail         import Mail
 
-# Core ORM
-db       = SQLAlchemy()
-migrate  = Migrate()
 
-# Auth
+# ── Database ORM ──────────────────────────────────────────────────────────────
+db = SQLAlchemy()
+
+# ── Alembic migrations ────────────────────────────────────────────────────────
+migrate = Migrate()
+
+# ── Authentication ────────────────────────────────────────────────────────────
 login_manager = LoginManager()
-login_manager.login_view       = "auth.login"
-login_manager.login_message    = "Please log in to access Orbit."
-login_manager.login_message_category = "warning"
-login_manager.session_protection = "strong"
 
-# Password hashing
-bcrypt   = Bcrypt()
+# ── CSRF protection (applied globally via init_app) ───────────────────────────
+csrf = CSRFProtect()
 
-# Email
-mail     = Mail()
+# ── Rate limiting (Redis-backed in production) ────────────────────────────────
+#    key_func uses the real client IP, respecting X-Forwarded-For behind Nginx
+limiter = Limiter(key_func=get_remote_address)
 
-# CSRF protection
-csrf     = CSRFProtect()
+# ── Response caching (Redis in production, SimpleCache in dev/test) ───────────
+cache = Cache()
 
-# Rate limiting
-limiter  = Limiter(
-    key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"],
-)
-
-# Caching
-cache    = Cache()
-
-# CORS (API routes only)
-cors     = CORS()
-
-# Celery instance (bound to app in factory)
-celery   = Celery()
+# ── Outbound email ────────────────────────────────────────────────────────────
+mail = Mail()
