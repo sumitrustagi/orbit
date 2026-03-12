@@ -1,17 +1,28 @@
-import os
-from dotenv import load_dotenv
+"""
+Orbit — Production WSGI Entry Point
+=====================================
+Used by Gunicorn, uWSGI, and any WSGI-compatible server.
 
-# Load .env before anything else
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+Gunicorn (recommended):
+    gunicorn wsgi:app \\
+      --workers 4 \\
+      --threads 2 \\
+      --worker-class gevent \\
+      --bind 0.0.0.0:8000 \\
+      --timeout 120 \\
+      --access-logfile - \\
+      --error-logfile -
 
-from app import create_app, create_celery
+uWSGI alternative:
+    uwsgi --module wsgi:app --http :8000 --processes 4 --threads 2
 
-app = create_app(os.environ.get("FLASK_ENV", "production"))
-celery = create_celery(app)
+Direct Python (dev only — use flask run instead):
+    python wsgi.py
+"""
+from app import create_app
+
+app = create_app()
 
 if __name__ == "__main__":
-    app.run(
-        host="127.0.0.1",
-        port=int(os.environ.get("APP_PORT", 8080)),
-        debug=False
-    )
+    # Only reached when run directly — not via Gunicorn
+    app.run(host="0.0.0.0", port=8000)
