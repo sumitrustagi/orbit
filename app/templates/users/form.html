@@ -1,0 +1,59 @@
+{% extends "admin/_base.html" %}
+{% block title %}{{ 'Edit' if user else 'New' }} User{% endblock %}
+{% block page_title %}{{ 'Edit User' if user else 'New Admin User' }}{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">
+  <a href="{{ url_for('users.list_users') }}"
+     class="text-muted text-decoration-none">Users</a>
+  / {{ user.username if user else 'New' }}
+</div>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  .form-card { max-width:720px; }
+  .section-hd { font-size:0.7rem; font-weight:700; text-transform:uppercase;
+                letter-spacing:0.1em; color:#94a3b8;
+                margin:1.5rem 0 0.75rem; padding-bottom:0.4rem;
+                border-bottom:1px solid #f1f5f9; }
+  /* Password strength meter */
+  .strength-bar { height:5px; border-radius:3px; background:#e2e8f0;
+                  overflow:hidden; margin-top:4px; }
+  .strength-fill { height:100%; border-radius:3px; transition:width 0.3s, background 0.3s; }
+</style>
+{% endblock %}
+
+
+{% block content %}
+<div class="form-card">
+  <div class="orbit-card">
+    <div class="orbit-card-header">
+      <i class="bi bi-person-{{ 'pencil' if user else 'plus' }} text-primary"></i>
+      <span class="fw-semibold">
+        {{ 'Edit: ' + user.username if user else 'Create New Admin User' }}
+      </span>
+    </div>
+    <div class="orbit-card-body">
+
+      <form method="POST" novalidate>
+        {{ form.hidden_tag() }}
+
+        <!-- Identity -->
+        <p class="section-hd">Identity</p>
+        <div class="row g-3 mb-3">
+          <div class="col-md-5">
+            {{ form.username.label(class="form-label fw-semibold") }}
+            {{ form.username(class="form-control"
+                + (" is-invalid" if form.username.errors else "")) }}
+            {% for e in form.username.errors %}
+              <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="col-md-7">
+            {{ form.email.label(class="form-label fw-semibold") }}
+            {{ form.email(class="form-control"
+                + (" is-invalid" if form.email.errors else "")) }}
+            {% for e in form.email.errors %}
+              <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          
