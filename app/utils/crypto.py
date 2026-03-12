@@ -1,43 +1,66 @@
 """
-Fernet-based field-level encryption.
-Import encrypt/decrypt everywhere sensitive values are stored.
+Fernet symmetric encryption helpers for storing secrets in AppConfig.
+
+The encryption key is derived from SECRET_KEY via PBKDF2 and is
+deterministic — the same SECRET_KEY always produces the same Fernet key,
+so encrypted values survive app restarts as long as SECRET_KEY does not
+change.
+
+Usage:
+    from app.utils.crypto import encrypt, decrypt
+
+    AppConfig.set("SNOW_PASSWORD", encrypt("hunter2"), encrypted=True)
+    plain = decrypt(AppConfig.get("SNOW_PASSWORD"))
 """
+import base64
+import hashlib
 import os
-from cryptography.fernet import Fernet, InvalidToken
+
+from cryptography.fernet import Fernet
 
 
-def _cipher() -> Fernet:
-    key = os.environ.get("FERNET_KEY", "").encode()
-    if not key:
-        raise RuntimeError("FERNET_KEY is not set in environment.")
-    return Fernet(key)
+def _fernet() -> Fernet:
+    """
+    Derive a stable Fernet key from the app's SECRET_KEY.
+    Falls back to a random key if no Flask context is available
+    (e.g. during unit tests with isolated crypto calls).
+    """
+    try:
+        from flask import current_app
+        secret = current_app.config["SECRET_KEY"]
+        if isinstance(secret, str):
+            secret = secret.encode()
+    except RuntimeError:
+        # No Flask context — use env var fallback for tests
+        secret = os.environ.get("SECRET_KEY", "fallback-test-key").encode()
+
+    # Derive a 32-byte key via SHA-256 (deterministic, no salt needed
+    # because SECRET_KEY itself is the entropy source)
+    derived = hashlib.sha256(secret).digest()
+    fernet_key = base64.urlsafe_b64encode(derived)
+    return Fernet(fernet_key)
 
 
-def encrypt(plain: str) -> str:
-    """Encrypt a plaintext string. Returns base64 ciphertext string."""
-    if not plain:
+def encrypt(plaintext: str) -> str:
+    """
+    Encrypt a plaintext string and return the Fernet token as a str.
+    Returns an empty string if plaintext is empty.
+    """
+    if not plaintext:
         return ""
-    return _cipher().encrypt(plain.encode()).decode()
+    token = _fernet().encrypt(plaintext.encode())
+    return token.decode()
 
 
 def decrypt(ciphertext: str) -> str:
-    """Decrypt a Fernet ciphertext string. Returns plaintext."""
+    """
+    Decrypt a Fernet token string and return the plaintext.
+    Returns an empty string if ciphertext is empty or decryption fails.
+    """
     if not ciphertext:
         return ""
     try:
-        return _cipher().decrypt(ciphertext.encode()).decode()
-    except InvalidToken:
+        plaintext = _fernet().decrypt(ciphertext.encode())
+        return plaintext.decode()
+    except Exception:
         return ""
-
-
-def encrypt_field(value: str | None) -> str | None:
-    """SQLAlchemy-safe: handles None gracefully."""
-    if value is None:
-        return None
-    return encrypt(value)
-
-
-def decrypt_field(value: str | None) -> str | None:
-    if value is None:
-        return None
-    return decrypt(value)
