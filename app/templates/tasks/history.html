@@ -1,0 +1,165 @@
+{% extends "admin/_base.html" %}
+{% block title %}Task History{% endblock %}
+{% block page_title %}Task Execution History{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">
+  <a href="{{ url_for('tasks.monitor') }}"
+     class="text-muted text-decoration-none">Task Monitor</a>
+  / History
+</div>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  .action-badge { font-size:0.65rem; font-weight:700; border-radius:4px;
+                  padding:0.15rem 0.4rem; }
+  .ab-snow   { background:#dbeafe; color:#1e40af; }
+  .ab-cf     { background:#f0fdf4; color:#166534; }
+  .ab-webex  { background:#fef3c7; color:#92400e; }
+  .ab-maint  { background:#f1f5f9; color:#475569; }
+  .ab-ok     { background:#dcfce7; color:#166534; }
+  .ab-fail   { background:#fee2e2; color:#991b1b; }
+</style>
+{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('tasks.monitor') }}" class="btn btn-sm btn-outline-primary">
+  <i class="bi bi-display me-1"></i>Live Monitor
+</a>
+{% endblock %}
+
+
+{% block content %}
+
+<!-- Filter bar -->
+<div class="orbit-card mb-3 p-3">
+  <form method="GET" class="d-flex gap-2 align-items-end flex-wrap">
+    <div>
+      <label class="form-label fw-semibold mb-1" style="font-size:0.75rem;">Action</label>
+      <select name="action" class="form-select form-select-sm">
+        <option value="">All Actions</option>
+        {% for a in task_actions %}
+        <option value="{{ a }}" {{ 'selected' if action==a }}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-primary btn-sm">
+      <i class="bi bi-funnel-fill"></i>
+    </button>
+    {% if action %}
+    <a href="{{ url_for('tasks.history') }}"
+       class="btn btn-outline-secondary btn-sm">Clear</a>
+    {% endif %}
+    <span class="ms-auto text-muted" style="font-size:0.75rem;">
+      {{ total }} entries
+    </span>
+  </form>
+</div>
+
+<!-- History table -->
+<div class="orbit-card">
+  <div class="table-responsive">
+    <table class="table orbit-table mb-0">
+      <thead>
+        <tr>
+          <th style="width:170px;">Timestamp</th>
+          <th>Action</th>
+          <th>Resource</th>
+          <th>Status</th>
+          <th>Payload</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in items %}
+        <tr class="{{ 'table-danger bg-opacity-10' if log.status=='failure' else '' }}">
+          <td class="font-monospace" style="font-size:0.7rem;white-space:nowrap;">
+            {{ log.created_at.strftime('%d %b %Y %H:%M:%S') if log.created_at else '—' }}
+          </td>
+          <td>
+            {% set ac = log.action | upper %}
+            <span class="action-badge
+              {{ 'ab-snow'  if 'SNOW'   in ac
+                 else 'ab-cf'    if 'CF_'    in ac
+                 else 'ab-webex' if 'WEBEX'  in ac
+                 else 'ab-maint' }}">
+              {{ log.action }}
+            </span>
+          </td>
+          <td style="font-size:0.78rem;">
+            <div class="fw-semibold">{{ log.resource_name or '—' }}</div>
+            <div class="text-muted" style="font-size:0.7rem;">
+              {{ log.resource_type or '' }}
+            </div>
+          </td>
+          <td>
+            <span class="action-badge {{ 'ab-ok' if log.status=='success' else 'ab-fail' }}">
+              {{ log.status }}
+            </span>
+          </td>
+          <td>
+            {% if log.payload_after %}
+            <details style="font-size:0.7rem;">
+              <summary class="text-muted" style="cursor:pointer;">
+                View payload
+              </summary>
+              <pre style="font-size:0.68rem;margin-top:4px;background:#f8fafc;
+                          padding:6px;border-radius:4px;overflow-x:auto;
+                          max-width:300px;">{{ log.payload_after | tojson(indent=2) }}</pre>
+            </details>
+            {% else %}
+            <span class="text-muted opacity-50">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" class="text-center text-muted py-4">
+            No task executions found.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if pages > 1 %}
+  <div class="d-flex justify-content-center py-3">
+    <nav>
+      <ul class="pagination pagination-sm mb-0">
+        {% if page > 1 %}
+        <li class="page-item">
+          <a class="page-link"
+             href="?page={{ page-1 }}&action={{ action }}">&laquo;</a>
+        </li>
+        {% endif %}
+
+        {% for p in range(1, pages+1) %}
+          {% if p == page or p <= 2 or p >= pages-1
+             or (p >= page-2 and p <= page+2) %}
+          <li class="page-item {{ 'active' if p == page }}">
+            <a class="page-link" href="?page={{ p }}&action={{ action }}">
+              {{ p }}
+            </a>
+          </li>
+          {% elif p == 3 or p == pages-2 %}
+          <li class="page-item disabled">
+            <span class="page-link">…</span>
+          </li>
+          {% endif %}
+        {% endfor %}
+
+        {% if page < pages %}
+        <li class="page-item">
+          <a class="page-link"
+             href="?page={{ page+1 }}&action={{ action }}">&raquo;</a>
+        </li>
+        {% endif %}
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
