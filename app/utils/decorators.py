@@ -1,126 +1,222 @@
 """
-Role-based access decorators and the @audit_action decorator.
-Import these in every route file.
+Custom Flask route decorators used across all blueprints.
+
+Decorators:
+  @admin_required          — Requires role admin OR superadmin
+  @superadmin_required     — Requires role superadmin only
+  @readonly_allowed        — Explicitly marks a route as accessible to
+                             read-only users (documents intent, no block)
+  @api_key_required        — Validates X-API-Key header for webhook routes
+  @log_action(action)      — Writes an AuditLog entry on every successful call
 """
 import functools
-from flask import abort, request, g
+import logging
+from typing import Callable
+
+from flask import abort, request, jsonify, current_app
 from flask_login import current_user
-from app.models.user import UserRole
+
+logger = logging.getLogger(__name__)
 
 
-# ── Role Guards ───────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# ROLE-BASED ACCESS DECORATORS
+# ═════════════════════════════════════════════════════════════════════════════
 
-def require_role(*roles: UserRole):
+def admin_required(f: Callable) -> Callable:
     """
-    Decorator factory. Usage:
-        @require_role(UserRole.GUI_ADMIN)
-        @require_role(UserRole.GUI_ADMIN, UserRole.PLATFORM_ADMIN)
-    """
-    def decorator(f):
-        @functools.wraps(f)
-        def wrapped(*args, **kwargs):
-            if not current_user.is_authenticated:
-                abort(401)
-            if current_user.role not in roles:
-                abort(403)
-            return f(*args, **kwargs)
-        return wrapped
-    return decorator
+    Restrict a route to authenticated users with role ADMIN or SUPERADMIN.
 
-
-def gui_admin_required(f):
-    """Shortcut: GUI Admin only."""
-    @functools.wraps(f)
-    def wrapped(*args, **kwargs):
-        if not current_user.is_authenticated:
-            abort(401)
-        if current_user.role not in (UserRole.GUI_ADMIN, UserRole.PLATFORM_ADMIN):
-            abort(403)
-        return f(*args, **kwargs)
-    return wrapped
-
-
-def platform_admin_required(f):
-    """Shortcut: Platform Admin only."""
-    @functools.wraps(f)
-    def wrapped(*args, **kwargs):
-        if not current_user.is_authenticated:
-            abort(401)
-        if current_user.role != UserRole.PLATFORM_ADMIN:
-            abort(403)
-        return f(*args, **kwargs)
-    return wrapped
-
-
-def end_user_required(f):
-    """Shortcut: Any authenticated user (portal access)."""
-    @functools.wraps(f)
-    def wrapped(*args, **kwargs):
-        if not current_user.is_authenticated:
-            abort(401)
-        return f(*args, **kwargs)
-    return wrapped
-
-
-# ── Audit Action Decorator ────────────────────────────────────────────────────
-
-def audit_action(action: str, resource_type: str = "", capture_response: bool = False):
-    """
-    Decorator that writes an AuditLog entry for the wrapped route.
+    Read-only users are rejected with HTTP 403.
+    Unauthenticated users are handled by Flask-Login's @login_required —
+    apply that decorator as well when needed.
 
     Usage:
-        @audit_action("UPDATE", "auto_attendant")
-        def update_attendant(attendant_id):
+        @app.route("/admin/something")
+        @login_required
+        @admin_required
+        def my_view():
             ...
     """
-    def decorator(f):
-        @functools.wraps(f)
-        def wrapped(*args, **kwargs):
-            from app.models.audit import AuditLog
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated:
+            abort(401)
 
-            user_id   = current_user.id       if current_user.is_authenticated else None
-            username  = current_user.username  if current_user.is_authenticated else "anonymous"
-            role      = current_user.role.value if current_user.is_authenticated else ""
-            ip        = _get_ip()
-            ua        = request.headers.get("User-Agent", "")[:512]
+        from app.models.user import UserRole
+        allowed = {UserRole.ADMIN, UserRole.SUPERADMIN}
 
-            # Extract resource_id from route kwargs if present
-            rid = (
-                kwargs.get("id") or
-                kwargs.get("user_id") or
-                kwargs.get("pool_id") or
-                kwargs.get("attendant_id") or
-                ""
+        if current_user.role not in allowed:
+            logger.warning(
+                f"[Auth] 403 admin_required — "
+                f"user={current_user.username} role={current_user.role} "
+                f"path={request.path}"
             )
+            if request.is_json:
+                return jsonify({
+                    "error": "Admin access required."
+                }), 403
+            abort(403)
 
+        return f(*args, **kwargs)
+    return decorated
+
+
+def superadmin_required(f: Callable) -> Callable:
+    """
+    Restrict a route to authenticated users with role SUPERADMIN only.
+
+    Admin and read-only users are rejected with HTTP 403.
+
+    Usage:
+        @app.route("/admin/users")
+        @login_required
+        @superadmin_required
+        def user_list():
+            ...
+    """
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated:
+            abort(401)
+
+        from app.models.user import UserRole
+
+        if current_user.role != UserRole.SUPERADMIN:
+            logger.warning(
+                f"[Auth] 403 superadmin_required — "
+                f"user={current_user.username} role={current_user.role} "
+                f"path={request.path}"
+            )
+            if request.is_json:
+                return jsonify({
+                    "error": "Superadmin access required."
+                }), 403
+            abort(403)
+
+        return f(*args, **kwargs)
+    return decorated
+
+
+def readonly_allowed(f: Callable) -> Callable:
+    """
+    Marker decorator — documents that a route is intentionally accessible
+    to read-only users. No access restriction is applied; this exists
+    purely for code readability and future auditing.
+
+    Usage:
+        @app.route("/admin/reports/dids")
+        @login_required
+        @readonly_allowed
+        def did_report():
+            ...
+    """
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        return f(*args, **kwargs)
+    return decorated
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# API KEY DECORATOR  (webhook ingestion routes)
+# ═════════════════════════════════════════════════════════════════════════════
+
+def api_key_required(f: Callable) -> Callable:
+    """
+    Validate the X-API-Key HTTP header against the SNOW_WEBHOOK_SECRET
+    value stored in AppConfig.
+
+    Returns HTTP 401 JSON if the key is absent or incorrect.
+    Returns HTTP 503 JSON if the secret has not been configured yet.
+
+    Usage:
+        @snow_bp.route("/api/webhook/snow", methods=["POST"])
+        @csrf.exempt
+        @api_key_required
+        def snow_webhook():
+            ...
+    """
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        from app.models.app_config import AppConfig
+
+        expected = AppConfig.get("SNOW_WEBHOOK_SECRET", "")
+        if not expected:
+            logger.error(
+                "[Auth] api_key_required — SNOW_WEBHOOK_SECRET not configured."
+            )
+            return jsonify({
+                "error": "Webhook secret not configured on this server."
+            }), 503
+
+        provided = (
+            request.headers.get("X-API-Key")
+            or request.headers.get("Authorization", "").removeprefix("Bearer ")
+        ).strip()
+
+        if not provided or provided != expected:
+            logger.warning(
+                f"[Auth] 401 api_key_required — "
+                f"invalid key from {request.remote_addr} "
+                f"path={request.path}"
+            )
+            return jsonify({"error": "Invalid or missing API key."}), 401
+
+        return f(*args, **kwargs)
+    return decorated
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# AUDIT LOG DECORATOR
+# ═════════════════════════════════════════════════════════════════════════════
+
+def log_action(action: str, resource_type: str = ""):
+    """
+    Decorator factory that writes an AuditLog entry after a successful
+    route call. Failures (exceptions / non-2xx) are not logged here —
+    individual routes handle failure audit entries explicitly.
+
+    Args:
+        action:        AuditLog action string e.g. "DID_ASSIGN"
+        resource_type: Optional resource type label e.g. "did"
+
+    Usage:
+        @did_bp.route("/dids/<int:did_id>/assign", methods=["POST"])
+        @login_required
+        @admin_required
+        @log_action("DID_ASSIGN", resource_type="did")
+        def assign_did(did_id):
+            ...
+    """
+    def decorator(f: Callable) -> Callable:
+        @functools.wraps(f)
+        def decorated(*args, **kwargs):
             response = f(*args, **kwargs)
 
-            status_code = None
-            if hasattr(response, "status_code"):
-                status_code = response.status_code
-
-            AuditLog.write(
-                action=action,
-                user_id=user_id,
-                username=username,
-                user_role=role,
-                ip_address=ip,
-                user_agent=ua,
-                resource_type=resource_type,
-                resource_id=str(rid),
-                http_method=request.method,
-                http_path=request.path,
-                http_status=status_code,
-                status="success",
+            # Only audit on success (2xx responses or non-Response returns)
+            status_code = (
+                response.status_code
+                if hasattr(response, "status_code")
+                else 200
             )
+            if status_code < 400:
+                try:
+                    from app.models.audit import AuditLog
+                    AuditLog.write(
+                        action        = action,
+                        username      = getattr(current_user, "username", "anonymous"),
+                        user_role     = getattr(
+                            getattr(current_user, "role", None),
+                            "value", ""
+                        ),
+                        ip_address    = request.remote_addr,
+                        resource_type = resource_type,
+                        resource_name = request.path,
+                        status        = "success",
+                    )
+                except Exception as exc:
+                    logger.warning(f"[AuditLog] log_action write failed: {exc}")
+
             return response
-        return wrapped
+        return decorated
     return decorator
-
-
-def _get_ip() -> str:
-    """Extract real client IP respecting X-Forwarded-For from Nginx."""
-    xff = request.headers.get("X-Forwarded-For")
-    if xff:
-        return xff.split(",")[0].strip()
-    return request.remote_addr or ""
