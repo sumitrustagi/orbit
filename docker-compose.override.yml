@@ -1,0 +1,35 @@
+# Local development overrides — NOT for production use.
+# This file is automatically merged by docker-compose when present.
+
+version: "3.9"
+
+services:
+  web:
+    build:
+      target: runtime
+    environment:
+      FLASK_ENV: development
+      FLASK_DEBUG: "1"
+    volumes:
+      - .:/app          # Live code reload
+    command: dev
+
+  worker:
+    environment:
+      FLASK_ENV: development
+    volumes:
+      - .:/app
+
+  beat:
+    environment:
+      FLASK_ENV: development
+    volumes:
+      - .:/app
+
+  db:
+    ports:
+      - "5432:5432"     # Expose DB for local clients (DBeaver, psql)
+
+  redis:
+    ports:
+      - "6379:6379"     # Expose Redis for local inspection
