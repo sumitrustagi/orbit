@@ -1,0 +1,203 @@
+{% extends "admin/_base.html" %}
+{% block title %}User Management{% endblock %}
+{% block page_title %}User Management{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">System / Users</div>
+{% endblock %}
+
+{% block topbar_actions %}
+{% if current_user.role.value == 'superadmin' %}
+<a href="{{ url_for('users.create_user') }}" class="btn btn-sm btn-primary">
+  <i class="bi bi-person-plus-fill me-1"></i>New User
+</a>
+{% endif %}
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  .role-badge { font-size:0.65rem; font-weight:700; border-radius:4px; padding:0.2rem 0.5rem; }
+  .rb-superadmin { background:#fef3c7; color:#92400e; }
+  .rb-admin      { background:#dbeafe; color:#1e40af; }
+  .rb-readonly   { background:#f1f5f9; color:#475569; }
+  .user-avatar   {
+    width:36px; height:36px; border-radius:50%;
+    background:linear-gradient(135deg,#1e40af,#3b82f6);
+    color:#fff; display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-size:0.85rem; flex-shrink:0;
+  }
+</style>
+{% endblock %}
+
+
+{% block content %}
+
+<!-- Stats -->
+<div class="row g-3 mb-4">
+  {% for icon, col, val, lbl in [
+    ("bi-people-fill",       "primary",   stats.total,       "Total Users"),
+    ("bi-person-check-fill", "success",   stats.active,      "Active"),
+    ("bi-shield-fill",       "warning",   stats.superadmins, "Super Admins"),
+    ("bi-person-badge-fill", "primary",   stats.admins,      "Admins"),
+  ] %}
+  <div class="col-md-3">
+    <div class="stat-widget">
+      <div class="stat-icon bg-{{ col }}-subtle text-{{ col }}">
+        <i class="bi {{ icon }}"></i>
+      </div>
+      <div>
+        <div class="stat-value">{{ val }}</div>
+        <div class="stat-label">{{ lbl }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Filters -->
+<div class="orbit-card mb-3 p-3">
+  <form method="GET" class="row g-2 align-items-end">
+    <div class="col-md-4">
+      <input type="text" name="search" value="{{ search }}"
+             class="form-control form-control-sm"
+             placeholder="Username, email, full name…"/>
+    </div>
+    <div class="col-md-3">
+      <select name="role" class="form-select form-select-sm">
+        <option value="">All Roles</option>
+        {% for r in ['superadmin','admin','readonly'] %}
+        <option value="{{ r }}" {{ 'selected' if role_filter==r }}>
+          {{ r | title }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <select name="status" class="form-select form-select-sm">
+        <option value="">All Statuses</option>
+        <option value="active"   {{ 'selected' if status_filter=='active'   }}>Active</option>
+        <option value="inactive" {{ 'selected' if status_filter=='inactive' }}>Inactive</option>
+        <option value="locked"   {{ 'selected' if status_filter=='locked'   }}>Locked</option>
+      </select>
+    </div>
+    <div class="col-md-2 d-flex gap-2">
+      <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+        <i class="bi bi-funnel-fill"></i>
+      </button>
+      {% if search or role_filter or status_filter %}
+      <a href="{{ url_for('users.list_users') }}"
+         class="btn btn-outline-secondary btn-sm">Clear</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<!-- Table -->
+<div class="orbit-card">
+  <div class="orbit-card-header">
+    <i class="bi bi-people text-primary"></i>
+    <span class="fw-semibold">Admin Users</span>
+    <span class="ms-auto text-muted" style="font-size:0.75rem;">
+      {{ users | length }} shown
+    </span>
+  </div>
+
+  {% if users %}
+  <div class="table-responsive">
+    <table class="table orbit-table mb-0">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Last Login</th>
+          <th>Created</th>
+          <th style="width:36px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td>
+            <div class="d-flex align-items-center gap-2">
+              <div class="user-avatar">
+                {{ (u.full_name or u.username)[0].upper() }}
+              </div>
+              <div>
+                <a href="{{ url_for('users.user_detail', user_id=u.id) }}"
+                   class="fw-semibold text-decoration-none text-dark">
+                  {{ u.full_name or u.username }}
+                </a>
+                <div class="text-muted" style="font-size:0.72rem;">
+                  {{ u.username }}
+                  {% if u.email %}· {{ u.email }}{% endif %}
+                </div>
+              </div>
+            </div>
+          </td>
+
+          <td>
+            <span class="role-badge rb-{{ u.role.value }}">
+              {{ u.role.value | title }}
+            </span>
+          </td>
+
+          <td>
+            {% if u.locked_until and u.locked_until > now %}
+            <span class="badge bg-danger-subtle text-danger" style="font-size:0.65rem;">
+              Locked
+            </span>
+            {% elif u.is_active %}
+            <span class="badge bg-success-subtle text-success" style="font-size:0.65rem;">
+              Active
+            </span>
+            {% else %}
+            <span class="badge bg-secondary-subtle text-secondary" style="font-size:0.65rem;">
+              Inactive
+            </span>
+            {% endif %}
+
+            {% if u.must_change_password %}
+            <span class="badge bg-warning-subtle text-warning ms-1" style="font-size:0.62rem;"
+                  title="Must change password">PW Change Required</span>
+            {% endif %}
+          </td>
+
+          <td class="text-muted" style="font-size:0.78rem;">
+            {% if u.last_login_at %}
+              {{ u.last_login_at.strftime('%d %b %Y %H:%M') }}
+            {% else %}
+              <span class="text-muted opacity-50">Never</span>
+            {% endif %}
+          </td>
+
+          <td class="text-muted" style="font-size:0.75rem;">
+            {{ u.created_at.strftime('%d %b %Y') }}
+          </td>
+
+          <td>
+            <a href="{{ url_for('users.user_detail', user_id=u.id) }}"
+               class="btn btn-sm btn-light py-0 px-1">
+              <i class="bi bi-chevron-right" style="font-size:0.7rem;"></i>
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% else %}
+  <div class="text-center py-5">
+    <i class="bi bi-people fs-1 text-muted opacity-25"></i>
+    <h6 class="text-muted mt-3">No users found</h6>
+    {% if current_user.role.value == 'superadmin' %}
+    <a href="{{ url_for('users.create_user') }}" class="btn btn-primary mt-3">
+      <i class="bi bi-person-plus-fill me-2"></i>Create First User
+    </a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
