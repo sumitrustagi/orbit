@@ -1,0 +1,223 @@
+{% extends "admin/_base.html" %}
+{% block title %}SNOW Report{% endblock %}
+{% block page_title %}ServiceNow Fulfillment Report{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">
+  <a href="{{ url_for('reports.dashboard') }}"
+     class="text-muted text-decoration-none">Reports</a> / SNOW
+</div>
+{% endblock %}
+
+{% block topbar_actions %}
+<div class="d-flex gap-2">
+  <div class="btn-group btn-group-sm">
+    {% for d,l in [(7,'7d'),(30,'30d'),(90,'90d')] %}
+    <a href="?days={{ d }}"
+       class="btn {{ 'btn-primary' if days==d else 'btn-outline-secondary' }}">{{ l }}</a>
+    {% endfor %}
+  </div>
+  <a href="{{ url_for('reports.export_snow') }}" class="btn btn-sm btn-outline-success">
+    <i class="bi bi-download me-1"></i>Export CSV
+  </a>
+</div>
+{% endblock %}
+
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<style>
+  .chart-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:1.25rem; }
+  .chart-title { font-size:0.75rem; font-weight:700; text-transform:uppercase;
+                 letter-spacing:0.07em; color:#64748b; margin-bottom:0.875rem; }
+  .avg-badge { font-size:1.4rem; font-weight:800; color:#1e40af; }
+  .status-pill { font-size:0.68rem; font-weight:700; border-radius:4px;
+                 padding:0.2rem 0.5rem; }
+  .sp-fulfilled  { background:#dcfce7; color:#166534; }
+  .sp-pending    { background:#fef3c7; color:#92400e; }
+  .sp-failed     { background:#fee2e2; color:#991b1b; }
+  .sp-processing { background:#dbeafe; color:#1e40af; }
+</style>
+{% endblock %}
+
+
+{% block content %}
+
+<!-- Avg fulfillment time KPI -->
+<div class="row g-3 mb-3">
+  <div class="col-md-3">
+    <div class="chart-card d-flex align-items-center gap-3">
+      <div style="width:48px;height:48px;border-radius:10px;background:#eff6ff;
+                  display:flex;align-items:center;justify-content:center;">
+        <i class="bi bi-stopwatch fs-5 text-primary"></i>
+      </div>
+      <div>
+        <div class="avg-badge">{{ avg_fulfillment_time }}<span style="font-size:0.9rem;color:#64748b;">m</span></div>
+        <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;
+                    letter-spacing:0.07em;color:#64748b;">Avg Fulfillment Time</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-9">
+    <div class="chart-card h-100">
+      <div class="chart-title">Daily Requests — Last {{ days }} Days</div>
+      <canvas id="snowTrendChart" height="120"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Status breakdown + recent requests -->
+<div class="row g-3 mb-3">
+  <div class="col-md-4">
+    <div class="chart-card h-100">
+      <div class="chart-title">Status Distribution</div>
+      <canvas id="snowStatusChart" height="230"></canvas>
+    </div>
+  </div>
+
+  <div class="col-md-8">
+    <div class="orbit-card h-100">
+      <div class="orbit-card-header">
+        <i class="bi bi-ticket text-primary"></i>
+        <span class="fw-semibold">Recent Requests</span>
+      </div>
+      <div class="table-responsive" style="max-height:320px;overflow-y:auto;">
+        <table class="table orbit-table mb-0">
+          <thead>
+            <tr>
+              <th>SNOW #</th>
+              <th>Requester</th>
+              <th>Status</th>
+              <th>Assigned DID</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in recent %}
+            <tr>
+              <td class="font-monospace fw-semibold" style="font-size:0.8rem;">
+                {{ r.snow_number }}
+              </td>
+              <td>
+                <div style="font-size:0.82rem;">{{ r.requester_name or '—' }}</div>
+                <div class="text-muted" style="font-size:0.7rem;">{{ r.requester_email }}</div>
+              </td>
+              <td>
+                <span class="status-pill sp-{{ r.status }}">{{ r.status | title }}</span>
+              </td>
+              <td class="font-monospace" style="font-size:0.8rem;">
+                {{ r.assigned_did or '—' }}
+              </td>
+              <td class="text-muted" style="font-size:0.75rem;white-space:nowrap;">
+                {{ r.created_at[:10] if r.created_at else '—' }}
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="5" class="text-center text-muted py-3">No requests found.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Failed requests -->
+{% if failed %}
+<div class="orbit-card">
+  <div class="orbit-card-header">
+    <i class="bi bi-x-circle text-danger"></i>
+    <span class="fw-semibold">Failed Requests</span>
+    <span class="badge bg-danger-subtle text-danger ms-2">{{ failed | length }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table orbit-table mb-0">
+      <thead>
+        <tr>
+          <th>SNOW #</th>
+          <th>Requester Email</th>
+          <th>Retry Count</th>
+          <th>Failure Reason</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in failed %}
+        <tr>
+          <td class="font-monospace fw-semibold">{{ r.snow_number }}</td>
+          <td>{{ r.requester_email }}</td>
+          <td class="text-center">{{ r.retry_count }}</td>
+          <td class="text-danger" style="font-size:0.78rem;max-width:280px;word-break:break-all;">
+            {{ r.failure_reason or '—' }}
+          </td>
+          <td class="text-muted" style="font-size:0.75rem;">
+            {{ r.created_at[:10] if r.created_at else '—' }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+const DAYS = {{ days }};
+
+async function buildSnowTrend() {
+  const data  = await (await fetch(`/admin/reports/api/snow-trend?days=${DAYS}`)).json();
+  new Chart(document.getElementById('snowTrendChart'), {
+    type:'bar',
+    data:{
+      labels: data.map(d => d.date),
+      datasets:[
+        { label:'Fulfilled', data:data.map(d=>d.fulfilled),
+          backgroundColor:'#22c55e', borderRadius:3, stack:'s' },
+        { label:'Failed',    data:data.map(d=>d.failed),
+          backgroundColor:'#ef4444', borderRadius:3, stack:'s' },
+        { label:'Total',     data:data.map(d=>d.total),
+          type:'line', borderColor:'#3b82f6', borderWidth:2,
+          backgroundColor:'rgba(59,130,246,0.08)', fill:true,
+          tension:0.3, pointRadius:2 },
+      ],
+    },
+    options:{
+      interaction:{ mode:'index' },
+      plugins:{ legend:{ position:'top', labels:{ usePointStyle:true } } },
+      scales:{
+        x:{ grid:{ color:'rgba(226,232,240,0.7)' }, ticks:{ maxTicksLimit:12 } },
+        y:{ grid:{ color:'rgba(226,232,240,0.7)' }, beginAtZero:true, ticks:{ precision:0 } },
+      },
+    },
+  });
+}
+
+async function buildSnowStatus() {
+  const data   = await (await fetch('/admin/reports/api/snow-status')).json();
+  const labels = data.map(d => d.status.charAt(0).toUpperCase() + d.status.slice(1));
+  const values = data.map(d => d.count);
+  const colors = data.map(d =>
+    d.status==='fulfilled' ? '#22c55e' :
+    d.status==='pending'   ? '#f59e0b' :
+    d.status==='failed'    ? '#ef4444' : '#3b82f6'
+  );
+  new Chart(document.getElementById('snowStatusChart'), {
+    type:'doughnut',
+    data:{ labels, datasets:[{ data:values, backgroundColor:colors, borderWidth:2 }] },
+    options:{ cutout:'68%', plugins:{ legend:{ position:'bottom',
+      labels:{ usePointStyle:true, padding:12 } } } },
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  buildSnowTrend();
+  buildSnowStatus();
+});
+</script>
+{% endblock %}
