@@ -182,4 +182,32 @@ class ProductionConfig(BaseConfig):
             "SECRET_KEY":  os.environ.get("SECRET_KEY"),
             "DATABASE_URL": os.environ.get("DATABASE_URL"),
         }
-        missing 
+        missing = [k for k, v in required.items() if not v]
+        if missing:
+            raise ValueError(
+                f"Missing required environment variable(s): {', '.join(missing)}"
+            )
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CONFIG SELECTOR
+# ═════════════════════════════════════════════════════════════════════════════
+
+_CONFIG_MAP = {
+    "development": DevelopmentConfig,
+    "testing":     TestingConfig,
+    "production":  ProductionConfig,
+}
+
+
+def get_config():
+    """
+    Return the correct config class based on the environment.
+    Reads FLASK_ENV first, then ORBIT_CONFIG, then defaults to Production.
+    """
+    env = (
+        os.environ.get("FLASK_ENV")
+        or os.environ.get("ORBIT_CONFIG")
+        or "production"
+    ).lower()
+    return _CONFIG_MAP.get(env, ProductionConfig)
