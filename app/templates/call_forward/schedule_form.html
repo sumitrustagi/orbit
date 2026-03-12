@@ -1,0 +1,317 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}{{ 'Edit' if schedule else 'New' }} Schedule{% endblock %}
+{% block page_title %}{{ 'Edit Schedule' if schedule else 'New Call Forward Schedule' }}{% endblock %}
+
+{% block breadcrumb %}
+<div class="topbar-breadcrumb">
+  <a href="{{ url_for('call_forward.schedules_list') }}"
+     class="text-muted text-decoration-none">Call Forward</a>
+  / {{ 'Edit: ' + schedule.name if schedule else 'New' }}
+</div>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  .form-card  { max-width:780px; }
+  .section-hd { font-size:0.7rem; font-weight:700; text-transform:uppercase;
+                letter-spacing:0.1em; color:#94a3b8; margin:1.5rem 0 0.75rem; }
+  /* Weekday toggle pills */
+  .day-toggle input[type=checkbox] { display:none; }
+  .day-toggle label {
+    display:inline-block; padding:0.3rem 0.7rem;
+    border:1px solid #e2e8f0; border-radius:6px;
+    cursor:pointer; font-size:0.8rem; font-weight:600;
+    color:#64748b; transition:all 0.15s; user-select:none;
+  }
+  .day-toggle input:checked + label {
+    background:#1e40af; border-color:#1e40af; color:#fff;
+  }
+  .day-toggle label:hover { border-color:#93c5fd; color:#1e40af; }
+  /* Entity search */
+  .entity-dropdown {
+    position:absolute; z-index:100; width:100%;
+    background:#fff; border:1px solid #e2e8f0;
+    border-radius:6px; box-shadow:0 4px 16px rgba(0,0,0,0.08);
+    max-height:220px; overflow-y:auto; display:none;
+  }
+  .entity-item { padding:0.5rem 0.875rem; cursor:pointer; font-size:0.82rem; }
+  .entity-item:hover { background:#f1f5f9; }
+  .overnight-hint { background:#fff7ed; border:1px solid #fdba74;
+                    border-radius:6px; padding:0.5rem 0.875rem;
+                    font-size:0.78rem; color:#9a3412; display:none; }
+  .overnight-hint.visible { display:block; }
+</style>
+{% endblock %}
+
+
+{% block content %}
+<div class="form-card">
+  <div class="orbit-card">
+    <div class="orbit-card-header">
+      <i class="bi bi-{{ 'pencil' if schedule else 'plus-circle' }} text-primary"></i>
+      <span class="fw-semibold">
+        {{ 'Edit: ' + schedule.name if schedule else 'New Call Forward Schedule' }}
+      </span>
+    </div>
+    <div class="orbit-card-body">
+
+      <form method="POST" novalidate x-data="schedForm()">
+        {{ form.hidden_tag() }}
+
+        <!-- ── General ── -->
+        <p class="section-hd">General</p>
+        <div class="row g-3 mb-2">
+          <div class="col-md-9">
+            {{ form.name.label(class="form-label fw-semibold") }}
+            {{ form.name(class="form-control" + (" is-invalid" if form.name.errors else "")) }}
+            {% for e in form.name.errors %}
+              <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="col-md-3 d-flex align-items-end pb-1">
+            <div class="form-check form-switch">
+              {{ form.is_active(class="form-check-input", role="switch") }}
+              <label class="form-check-label fw-semibold"
+                     for="{{ form.is_active.id }}">Enabled</label>
+            </div>
+          </div>
+          <div class="col-12">
+            {{ form.description.label(class="form-label fw-semibold") }}
+            {{ form.description(class="form-control") }}
+          </div>
+        </div>
+
+        <hr/>
+
+        <!-- ── Target entity ── -->
+        <p class="section-hd">Target Entity</p>
+        <div class="row g-3 mb-2">
+          <div class="col-md-4">
+            {{ form.entity_type.label(class="form-label fw-semibold") }}
+            {{ form.entity_type(class="form-select",
+                                **{"x-model":"entityType",
+                                   "@change":"clearEntity()"}) }}
+          </div>
+          <div class="col-md-8">
+            {{ form.entity_id.label(class="form-label fw-semibold") }}
+            <div class="position-relative">
+              <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-search" style="font-size:0.8rem;"></i></span>
+                <input type="text" class="form-control"
+                       id="entitySearch" placeholder="Search by name or email…"
+                       autocomplete="off"
+                       @input="searchEntity($event.target.value)"
+                       x-model="entityQuery"/>
+                <span class="input-group-text" x-show="searching">
+                  <span class="spinner-border spinner-border-sm"></span>
+                </span>
+              </div>
+              {{ form.entity_id(type="hidden", **{"x-model":"entityId"}) }}
+              <!-- Dropdown -->
+              <div class="entity-dropdown" id="entityDropdown">
+                <template x-for="item in entityResults" :key="item.id">
+                  <div class="entity-item" @click="selectEntity(item)">
+                    <div class="fw-semibold" x-text="item.name"></div>
+                    <div class="text-muted" style="font-size:0.72rem;"
+                         x-text="item.email || item.id"></div>
+                  </div>
+                </template>
+              </div>
+            </div>
+            {% for e in form.entity_id.errors %}
+              <div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+          </div>
+
+          <div class="col-md-6">
+            {{ form.entity_name.label(class="form-label fw-semibold") }}
+            {{ form.entity_name(class="form-control", **{"x-model":"entityName"}) }}
+            {% for e in form.entity_name.errors %}
+              <div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="col-md-6">
+            {{ form.entity_email.label(class="form-label fw-semibold") }}
+            {{ form.entity_email(class="form-control") }}
+          </div>
+        </div>
+
+        <hr/>
+
+        <!-- ── Forward configuration ── -->
+        <p class="section-hd">Forward Configuration</p>
+        <div class="row g-3 mb-2">
+          <div class="col-md-5">
+            {{ form.forward_type.label(class="form-label fw-semibold") }}
+            {{ form.forward_type(class="form-select") }}
+          </div>
+          <div class="col-md-7">
+            {{ form.destination.label(class="form-label fw-semibold") }}
+            {{ form.destination(class="form-control font-monospace"
+                + (" is-invalid" if form.destination.errors else "")) }}
+            <div class="form-text">E.164 format (+3222000199) or extension (e.g. 1234)</div>
+            {% for e in form.destination.errors %}
+              <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+        </div>
+
+        <hr/>
+
+        <!-- ── Schedule window ── -->
+        <p class="section-hd">Schedule Window</p>
+
+        <!-- Weekday toggles -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold d-block">Active Days</label>
+          <div class="d-flex flex-wrap gap-2 day-toggle">
+            {% for value, label in form.active_days.choices %}
+            <div>
+              <input type="checkbox"
+                     name="{{ form.active_days.name }}"
+                     id="day_{{ value }}"
+                     value="{{ value }}"
+                     {{ 'checked' if value in (form.active_days.data or []) }}>
+              <label for="day_{{ value }}">{{ label }}</label>
+            </div>
+            {% endfor %}
+          </div>
+          {% for e in form.active_days.errors %}
+            <div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+        </div>
+
+        <div class="row g-3 mb-3">
+          <div class="col-md-3">
+            {{ form.time_start.label(class="form-label fw-semibold") }}
+            {{ form.time_start(class="form-control", **{"@change":"checkOvernight()"}) }}
+          </div>
+          <div class="col-md-1 d-flex align-items-end pb-2">
+            <span class="text-muted w-100 text-center">→</span>
+          </div>
+          <div class="col-md-3">
+            {{ form.time_end.label(class="form-label fw-semibold") }}
+            {{ form.time_end(class="form-control", **{"@change":"checkOvernight()"}) }}
+          </div>
+          <div class="col-md-5">
+            {{ form.timezone_name.label(class="form-label fw-semibold") }}
+            {{ form.timezone_name(class="form-select") }}
+          </div>
+        </div>
+
+        <!-- Overnight hint -->
+        <div class="overnight-hint mb-3" id="overnightHint">
+          <i class="bi bi-moon-stars-fill me-2"></i>
+          <strong>Overnight window detected.</strong>
+          Forwarding will activate at
+          <span id="overnightStart"></span>
+          and revert at
+          <span id="overnightEnd"></span>
+          the following day.
+        </div>
+
+        <div class="d-flex gap-2 mt-4">
+          <button type="submit" class="btn btn-primary px-4">
+            <i class="bi bi-{{ 'floppy' if schedule else 'plus-circle' }} me-2"></i>
+            {{ 'Save Changes' if schedule else 'Create Schedule' }}
+          </button>
+          <a href="{{ url_for('call_forward.schedule_detail', sched_id=schedule.id) if schedule
+                    else url_for('call_forward.schedules_list') }}"
+             class="btn btn-outline-secondary">Cancel</a>
+        </div>
+
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+function schedForm() {
+  return {
+    entityType:    '{{ form.entity_type.data or "user" }}',
+    entityId:      '{{ form.entity_id.data or "" }}',
+    entityName:    '{{ form.entity_name.data or "" }}',
+    entityQuery:   '{{ form.entity_name.data or "" }}',
+    entityResults: [],
+    searching:     false,
+    searchTimer:   null,
+
+    clearEntity() {
+      this.entityId    = '';
+      this.entityName  = '';
+      this.entityQuery = '';
+      this.entityResults = [];
+      document.getElementById('entityDropdown').style.display = 'none';
+    },
+
+    async searchEntity(q) {
+      clearTimeout(this.searchTimer);
+      if (q.length < 2) {
+        this.entityResults = [];
+        document.getElementById('entityDropdown').style.display = 'none';
+        return;
+      }
+      this.searchTimer = setTimeout(async () => {
+        this.searching = true;
+        try {
+          const resp = await fetch(
+            `/admin/call-forward/api/entity-search?q=${encodeURIComponent(q)}&type=${this.entityType}`
+          );
+          this.entityResults = await resp.json();
+          const dd = document.getElementById('entityDropdown');
+          dd.style.display = this.entityResults.length ? 'block' : 'none';
+        } catch(e) {
+          this.entityResults = [];
+        }
+        this.searching = false;
+      }, 350);
+    },
+
+    selectEntity(item) {
+      this.entityId    = item.id;
+      this.entityName  = item.name;
+      this.entityQuery = item.label || item.name;
+      this.entityResults = [];
+      document.getElementById('entityDropdown').style.display = 'none';
+      // Sync the entity_name input
+      const nameInput = document.querySelector('[name=entity_name]');
+      if (nameInput) nameInput.value = item.name;
+    },
+
+    checkOvernight() {
+      const s     = document.querySelector('[name=time_start]')?.value;
+      const e     = document.querySelector('[name=time_end]')?.value;
+      const hint  = document.getElementById('overnightHint');
+      const start = document.getElementById('overnightStart');
+      const end   = document.getElementById('overnightEnd');
+
+      if (s && e && s > e) {
+        hint.classList.add('visible');
+        if (start) start.textContent = s;
+        if (end)   end.textContent   = e;
+      } else {
+        hint.classList.remove('visible');
+      }
+    }
+  }
+}
+
+// Run overnight check on page load (for edit forms)
+document.addEventListener('DOMContentLoaded', () => {
+  const alpineEl = document.querySelector('[x-data]');
+  if (alpineEl && alpineEl._x_dataStack) return;
+  // Fallback for non-Alpine init
+  const s = document.querySelector('[name=time_start]')?.value;
+  const e = document.querySelector('[name=time_end]')?.value;
+  if (s && e && s > e) {
+    const hint = document.getElementById('overnightHint');
+    if (hint) {
+      hint.classList.add('visible');
+      const start = document.getElementById('overnightStart');
+      const end   = document.getElementById('overnightEnd');
+      if (start) start.textContent = s;
+      if (end)   end.textContent   = e;
+    }
+  }
+});
+</script>
+{% endblock %}
