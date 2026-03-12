@@ -1,0 +1,121 @@
+{% extends "settings/_layout.html" %}
+{% block title %}General Settings{% endblock %}
+{% block page_title %}System Settings{% endblock %}
+
+{% block settings_content %}
+<div class="orbit-card">
+  <div class="orbit-card-header">
+    <i class="bi bi-sliders text-primary"></i>
+    <span class="fw-semibold">General Settings</span>
+  </div>
+  <div class="orbit-card-body">
+    <form method="POST" novalidate>
+      {{ form.hidden_tag() }}
+
+      <!-- App identity -->
+      <p class="section-hd">Application Identity</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-7">
+          {{ form.app_name.label(class="form-label") }}
+          {{ form.app_name(class="form-control" + (" is-invalid" if form.app_name.errors else "")) }}
+          {% for e in form.app_name.errors %}
+            <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+        </div>
+        <div class="col-md-3">
+          {{ form.app_version.label(class="form-label") }}
+          {{ form.app_version(class="form-control") }}
+        </div>
+      </div>
+
+      <!-- UI Colours -->
+      <p class="section-hd">UI Colours</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-3">
+          {{ form.primary_color.label(class="form-label") }}
+          <div class="d-flex align-items-center gap-2">
+            {{ form.primary_color(class="form-control", id="primaryColourPicker") }}
+            <input type="text" id="primaryColourHex"
+                   class="form-control font-monospace"
+                   value="{{ form.primary_color.data or '#1E40AF' }}"
+                   style="max-width:100px;"
+                   oninput="document.getElementById('primaryColourPicker').value=this.value"/>
+          </div>
+        </div>
+        <div class="col-md-3">
+          {{ form.accent_color.label(class="form-label") }}
+          <div class="d-flex align-items-center gap-2">
+            {{ form.accent_color(class="form-control", id="accentColourPicker") }}
+            <input type="text" id="accentColourHex"
+                   class="form-control font-monospace"
+                   value="{{ form.accent_color.data or '#3B82F6' }}"
+                   style="max-width:100px;"
+                   oninput="document.getElementById('accentColourPicker').value=this.value"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- Session & pagination -->
+      <p class="section-hd">Session & Display</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-4">
+          {{ form.session_timeout_minutes.label(class="form-label") }}
+          {{ form.session_timeout_minutes(class="form-control") }}
+          <div class="form-text">Idle session expires after this many minutes.</div>
+        </div>
+        <div class="col-md-4">
+          {{ form.items_per_page.label(class="form-label") }}
+          {{ form.items_per_page(class="form-control") }}
+        </div>
+      </div>
+
+      <!-- Maintenance mode -->
+      <p class="section-hd">Maintenance Mode</p>
+      <div class="mb-3">
+        <div class="form-check form-switch mb-2">
+          {{ form.maintenance_mode(class="form-check-input", role="switch",
+                                   id="maintenanceSwitch") }}
+          <label class="form-check-label" for="maintenanceSwitch">
+            Enable Maintenance Mode
+          </label>
+        </div>
+        <div class="alert alert-warning py-2 d-flex gap-2 align-items-start"
+             style="font-size:0.8rem;">
+          <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+          <span>
+            When enabled, all non-superadmin users will see a maintenance page
+            instead of the application.
+          </span>
+        </div>
+      </div>
+      <div class="mb-3">
+        {{ form.maintenance_message.label(class="form-label") }}
+        {{ form.maintenance_message(class="form-control") }}
+      </div>
+
+      <div class="border-top pt-3 mt-2">
+        <button type="submit" class="btn btn-primary px-4">
+          <i class="bi bi-floppy2 me-2"></i>Save General Settings
+        </button>
+      </div>
+
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* Sync colour picker ↔ hex input */
+['primary','accent'].forEach(key => {
+  const picker = document.getElementById(`${key}ColourPicker`);
+  const hex    = document.getElementById(`${key}ColourHex`);
+  if (picker && hex) {
+    picker.addEventListener('input', () => { hex.value = picker.value; });
+    /* Sync picker name attr → picker value for form submission */
+    picker.addEventListener('change', () => {
+      picker.setAttribute('value', picker.value);
+    });
+  }
+});
+</script>
+{% endblock %}
