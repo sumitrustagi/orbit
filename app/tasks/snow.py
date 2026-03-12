@@ -1,129 +1,259 @@
 """
-Celery tasks for ServiceNow fulfillment.
+Celery tasks for ServiceNow request processing.
+
+Tasks:
+  process_snow_request(request_id)   — Main fulfillment pipeline for one request
+  retry_failed_requests()            — Beat: retry all retryable failed requests
+  update_snow_ticket(request_id)     — Update RITM state in ServiceNow after fulfillment
 """
 import logging
-from app.extensions import celery, db
+from datetime import datetime, timezone
+
+from celery import shared_task
+from celery.exceptions import MaxRetriesExceededError
+
+from app.extensions import db
 from app.models.snow import SNOWRequest, RequestStatus
+from app.models.did  import DID, DIDPool, DIDStatus
 from app.models.audit import AuditLog
 
 logger = logging.getLogger(__name__)
 
+# Maximum automatic retries before a request is permanently marked failed
+MAX_AUTO_RETRIES = 5
 
-@celery.task(
-    name="app.tasks.snow.fulfill_snow_request",
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MAIN FULFILLMENT PIPELINE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@shared_task(
     bind=True,
-    max_retries=3,
-    default_retry_delay=60,
+    name="app.tasks.snow.process_snow_request",
+    max_retries=MAX_AUTO_RETRIES,
+    default_retry_delay=90,
+    queue="snow",
     acks_late=True,
 )
-def fulfill_snow_request(self, snow_request_id: int):
+def process_snow_request(self, request_id: int) -> dict:
     """
-    Asynchronously fulfill a ServiceNow request.
+    Fulfill a single SNOW request end-to-end:
 
-    Called immediately after webhook ingestion.
-    Retries up to 3 times with a 60-second back-off on transient errors.
+    1. Load and validate the SNOWRequest
+    2. Find an available DID in the requested pool
+    3. Assign the DID in Webex Calling via the Webex service
+    4. Update DID status → ASSIGNED
+    5. Mark request → FULFILLED
+    6. Update the SNOW RITM state via REST
+    7. Send confirmation emails
+    8. Write audit log
+
+    On any failure the task retries with exponential back-off.
+    After MAX_AUTO_RETRIES the request is marked FAILED.
     """
-    from app.services.snow_fulfillment_service import process_snow_request
+    req = SNOWRequest.query.get(request_id)
+    if not req:
+        logger.error(f"[SNOW] Request {request_id} not found — aborting.")
+        return {"status": "not_found", "request_id": request_id}
 
-    logger.info(f"[SNOWTask] Starting fulfillment for SNOWRequest.id={snow_request_id}")
+    if req.status == RequestStatus.FULFILLED:
+        logger.info(f"[SNOW] Request {request_id} already fulfilled — skipping.")
+        return {"status": "already_fulfilled"}
+
+    # Mark as processing
+    req.status     = RequestStatus.PROCESSING
+    req.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
 
     try:
-        ok, msg = process_snow_request(snow_request_id)
+        # ── Step 1: Find available DID ────────────────────────────────────────
+        pool = None
+        if req.requested_pool_id:
+            pool = DIDPool.query.get(req.requested_pool_id)
 
-        if ok:
-            logger.info(
-                f"[SNOWTask] Fulfillment SUCCESS for id={snow_request_id}: {msg}"
-            )
-        else:
-            logger.error(
-                f"[SNOWTask] Fulfillment FAILED for id={snow_request_id}: {msg}"
+        did = _pick_available_did(
+            pool_id=pool.id if pool else None,
+            country=req.requested_country,
+        )
+        if not did:
+            raise RuntimeError(
+                f"No available DID found "
+                f"(pool={pool.name if pool else 'any'}, "
+                f"country={req.requested_country or 'any'})"
             )
 
-        return {"success": ok, "message": msg, "snow_request_id": snow_request_id}
+        # ── Step 2: Assign in Webex ───────────────────────────────────────────
+        from app.services.webex_service import assign_did_to_user
+        webex_result = assign_did_to_user(
+            user_email   = req.requester_email,
+            did_number   = did.number,
+            extension    = req.requested_extension or "",
+        )
+
+        # ── Step 3: Persist DID assignment ────────────────────────────────────
+        did.status              = DIDStatus.ASSIGNED
+        did.assigned_to_email   = req.requester_email
+        did.assigned_to_name    = req.requester_name or ""
+        did.assigned_at         = datetime.now(timezone.utc)
+        did.snow_request_number = req.snow_number
+
+        req.status              = RequestStatus.FULFILLED
+        req.assigned_did        = did.number
+        req.assigned_extension  = req.requested_extension or webex_result.get("extension","")
+        req.fulfilled_at        = datetime.now(timezone.utc)
+        req.failure_reason      = None
+        db.session.commit()
+
+        # ── Step 4: Update SNOW RITM ──────────────────────────────────────────
+        update_snow_ticket.delay(request_id)
+
+        # ── Step 5: Send emails ───────────────────────────────────────────────
+        from app.tasks.notifications import send_fulfillment_email
+        send_fulfillment_email.delay(request_id)
+
+        # ── Step 6: Audit ─────────────────────────────────────────────────────
+        AuditLog.write(
+            action        = "SNOW_FULFILL",
+            username      = "celery",
+            user_role     = "scheduler",
+            resource_type = "snow_request",
+            resource_id   = req.id,
+            resource_name = req.snow_number,
+            payload_after = {
+                "assigned_did":       did.number,
+                "assigned_extension": req.assigned_extension,
+            },
+            status        = "success",
+        )
+
+        logger.info(
+            f"[SNOW] ✓ Request {req.snow_number} fulfilled — "
+            f"DID {did.number} → {req.requester_email}"
+        )
+        return {"status": "fulfilled", "did": did.number, "request": req.snow_number}
 
     except Exception as exc:
-        logger.error(
-            f"[SNOWTask] Unhandled exception for id={snow_request_id}: {exc}"
-        )
         db.session.rollback()
+        req = SNOWRequest.query.get(request_id)
+        if req:
+            req.retry_count += 1
+            req.updated_at   = datetime.now(timezone.utc)
+
+            if self.request.retries >= MAX_AUTO_RETRIES - 1:
+                req.status         = RequestStatus.FAILED
+                req.failure_reason = str(exc)
+                db.session.commit()
+                AuditLog.write(
+                    action        = "SNOW_FAIL",
+                    username      = "celery",
+                    resource_type = "snow_request",
+                    resource_id   = req.id,
+                    resource_name = req.snow_number,
+                    payload_after = {"failure_reason": str(exc)},
+                    status        = "failure",
+                )
+                logger.error(
+                    f"[SNOW] ✗ Request {req.snow_number} permanently failed: {exc}"
+                )
+            else:
+                req.status = RequestStatus.RETRYING
+                db.session.commit()
 
         try:
-            req = SNOWRequest.query.get(snow_request_id)
-            if req and req.status not in (
-                RequestStatus.FULFILLED, RequestStatus.FAILED
-            ):
-                req.add_log(
-                    f"Celery task error (attempt {self.request.retries + 1}): {exc}"
-                )
-                db.session.commit()
-        except Exception:
+            countdown = 90 * (2 ** self.request.retries)  # exponential back-off
+            raise self.retry(exc=exc, countdown=min(countdown, 3600))
+        except MaxRetriesExceededError:
             pass
 
+        return {"status": "failed", "error": str(exc)}
+
+
+def _pick_available_did(pool_id: int | None, country: str | None) -> DID | None:
+    """Select and pessimistically lock the first available DID."""
+    q = (
+        DID.query
+        .filter_by(status=DIDStatus.AVAILABLE)
+        .with_for_update(skip_locked=True)
+    )
+    if pool_id:
+        q = q.filter_by(pool_id=pool_id)
+    if country:
+        q = q.filter_by(country=country)
+
+    return q.order_by(DID.id.asc()).first()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SNOW TICKET UPDATE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@shared_task(
+    bind=True,
+    name="app.tasks.snow.update_snow_ticket",
+    max_retries=3,
+    default_retry_delay=30,
+    queue="snow",
+)
+def update_snow_ticket(self, request_id: int) -> dict:
+    """
+    Push fulfillment state back to ServiceNow via the REST API.
+    Updates the RITM work notes and state code.
+    """
+    req = SNOWRequest.query.get(request_id)
+    if not req:
+        return {"status": "not_found"}
+
+    try:
+        from app.services.snow_service import update_ritm_state
+        ok, msg = update_ritm_state(
+            snow_number    = req.snow_number,
+            state          = "fulfilled" if req.status == RequestStatus.FULFILLED else "failed",
+            assigned_did   = req.assigned_did   or "",
+            work_notes     = (
+                f"DID {req.assigned_did} assigned to {req.requester_email}. "
+                f"Extension: {req.assigned_extension or 'N/A'}."
+                if req.status == RequestStatus.FULFILLED
+                else f"Fulfillment failed: {req.failure_reason}"
+            ),
+        )
+        if not ok:
+            raise RuntimeError(msg)
+
+        logger.info(f"[SNOW] RITM {req.snow_number} updated in ServiceNow.")
+        return {"status": "ok", "snow_number": req.snow_number}
+
+    except Exception as exc:
+        logger.warning(f"[SNOW] RITM update failed for {req.snow_number}: {exc}")
         raise self.retry(exc=exc)
 
 
-@celery.task(
+# ═══════════════════════════════════════════════════════════════════════════════
+# BEAT: RETRY FAILED REQUESTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@shared_task(
     name="app.tasks.snow.retry_failed_requests",
-    bind=True,
-    max_retries=1,
+    queue="snow",
 )
-def retry_failed_requests(self):
+def retry_failed_requests() -> dict:
     """
-    Nightly task — find FAILED requests less than 7 days old and retry them.
-    Prevents permanent failure from transient SNOW / Webex API issues.
+    Beat task — runs every 5 minutes.
+    Re-queues all SNOW requests in RETRYING status or FAILED with
+    retry_count < MAX_AUTO_RETRIES.
     """
-    from datetime import datetime, timezone, timedelta
-
-    cutoff   = datetime.now(timezone.utc) - timedelta(days=7)
-    failed   = (
-        SNOWRequest.query
-        .filter_by(status=RequestStatus.FAILED)
-        .filter(SNOWRequest.created_at >= cutoff)
-        .filter(SNOWRequest.retry_count < 3)
-        .all()
-    )
+    candidates = SNOWRequest.query.filter(
+        SNOWRequest.status.in_([RequestStatus.RETRYING, RequestStatus.FAILED]),
+        SNOWRequest.retry_count < MAX_AUTO_RETRIES,
+    ).all()
 
     queued = 0
-    for req in failed:
-        req.retry_count = (req.retry_count or 0) + 1
-        req.transition(RequestStatus.PENDING)
-        req.add_log(f"Nightly auto-retry #{req.retry_count}.")
-        db.session.commit()
-
-        fulfill_snow_request.delay(req.id)
+    for req in candidates:
+        process_snow_request.apply_async(
+            args=[req.id],
+            queue="snow",
+            countdown=5,
+        )
         queued += 1
 
-    logger.info(f"[SNOWRetry] Queued {queued} failed requests for retry.")
-    return {"queued": queued}
-
-
-@celery.task(
-    name="app.tasks.snow.sync_pending_requests",
-    bind=True,
-    max_retries=2,
-)
-def sync_pending_requests(self):
-    """
-    Hourly task — find PENDING requests older than 5 minutes and re-queue them.
-    Catches requests that were ingested but whose Celery task was lost
-    (e.g. worker restart during processing).
-    """
-    from datetime import datetime, timezone, timedelta
-
-    cutoff  = datetime.now(timezone.utc) - timedelta(minutes=5)
-    pending = (
-        SNOWRequest.query
-        .filter_by(status=RequestStatus.PENDING)
-        .filter(SNOWRequest.created_at <= cutoff)
-        .all()
-    )
-
-    queued = 0
-    for req in pending:
-        req.add_log("Re-queued by sync_pending_requests task.")
-        db.session.commit()
-        fulfill_snow_request.delay(req.id)
-        queued += 1
-
-    logger.info(f"[SNOWSync] Re-queued {queued} stale pending requests.")
+    logger.info(f"[SNOW] Beat: re-queued {queued} retryable request(s).")
     return {"queued": queued}
