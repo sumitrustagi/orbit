@@ -1,0 +1,147 @@
+{% extends "settings/_layout.html" %}
+{% block title %}ServiceNow Settings{% endblock %}
+{% block page_title %}System Settings{% endblock %}
+
+{% block settings_content %}
+<div class="orbit-card">
+  <div class="orbit-card-header">
+    <i class="bi bi-ticket text-primary"></i>
+    <span class="fw-semibold">ServiceNow Integration</span>
+  </div>
+  <div class="orbit-card-body">
+    <form method="POST" novalidate>
+      {{ form.hidden_tag() }}
+
+      <!-- Webhook URL -->
+      <div class="alert alert-primary d-flex gap-2 align-items-start mb-4 py-2">
+        <i class="bi bi-link-45deg flex-shrink-0 fs-5"></i>
+        <div>
+          <div class="fw-semibold" style="font-size:0.82rem;">Webhook URL</div>
+          <div class="font-monospace mt-1" style="font-size:0.78rem;word-break:break-all;">
+            {{ webhook_url }}
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-primary mt-1 py-0"
+                  onclick="navigator.clipboard.writeText('{{ webhook_url }}')
+                           .then(() => this.textContent='Copied!')">
+            Copy
+          </button>
+        </div>
+      </div>
+
+      <!-- Instance & credentials -->
+      <p class="section-hd">Connection</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-8">
+          {{ form.snow_instance.label(class="form-label") }}
+          {{ form.snow_instance(class="form-control"
+                + (" is-invalid" if form.snow_instance.errors else "")) }}
+          {% for e in form.snow_instance.errors %}
+            <div class="invalid-feedback">{{ e }}</div>{% endfor %}
+        </div>
+        <div class="col-md-4">
+          {{ form.snow_username.label(class="form-label") }}
+          {{ form.snow_username(class="form-control") }}
+        </div>
+        <div class="col-md-6">
+          {{ form.snow_password.label(class="form-label") }}
+          <div class="input-group">
+            {{ form.snow_password(class="form-control", id="snowPwd") }}
+            <button type="button" class="btn btn-outline-secondary"
+                    onclick="toggleVis('snowPwd', this)">
+              <i class="bi bi-eye"></i>
+            </button>
+          </div>
+        </div>
+        <div class="col-md-6">
+          {{ form.snow_webhook_secret.label(class="form-label") }}
+          <div class="input-group">
+            {{ form.snow_webhook_secret(class="form-control", id="snowSecret") }}
+            <button type="button" class="btn btn-outline-secondary"
+                    onclick="toggleVis('snowSecret', this)">
+              <i class="bi bi-eye"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Catalog + states -->
+      <p class="section-hd">Fulfillment Settings</p>
+      <div class="row g-3 mb-3">
+        <div class="col-md-6">
+          {{ form.snow_catalog_item_id.label(class="form-label") }}
+          {{ form.snow_catalog_item_id(class="form-control") }}
+        </div>
+        <div class="col-md-6">
+          {{ form.snow_assignment_group.label(class="form-label") }}
+          {{ form.snow_assignment_group(class="form-control") }}
+        </div>
+        <div class="col-md-3">
+          {{ form.snow_fulfilled_state.label(class="form-label") }}
+          {{ form.snow_fulfilled_state(class="form-control") }}
+        </div>
+        <div class="col-md-3">
+          {{ form.snow_failed_state.label(class="form-label") }}
+          {{ form.snow_failed_state(class="form-control") }}
+        </div>
+      </div>
+
+      <!-- Toggles -->
+      <p class="section-hd">Automation</p>
+      <div class="d-flex flex-column gap-2 mb-3">
+        {% for field, label in [
+          (form.snow_auto_fulfill,      "Auto-fulfill requests on webhook receipt"),
+          (form.snow_send_welcome_email,"Send welcome email on provisioning"),
+          (form.snow_send_did_email,    "Send DID assignment email on provisioning"),
+        ] %}
+        <div class="form-check form-switch">
+          {{ field(class="form-check-input", role="switch") }}
+          <label class="form-check-label" for="{{ field.id }}">{{ label }}</label>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="border-top pt-3 mt-2 d-flex gap-2 flex-wrap">
+        <button type="submit" class="btn btn-primary px-4">
+          <i class="bi bi-floppy2 me-2"></i>Save SNOW Settings
+        </button>
+        <button type="button" class="btn btn-outline-secondary"
+                onclick="testSnow(this)">
+          <i class="bi bi-plug me-1"></i>Test Connection
+        </button>
+        <span id="snowTestResult" class="ms-2 small align-self-center"></span>
+      </div>
+
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleVis(id, btn) {
+  const inp = document.getElementById(id);
+  inp.type  = inp.type === 'password' ? 'text' : 'password';
+  btn.innerHTML = inp.type === 'text'
+    ? '<i class="bi bi-eye-slash"></i>'
+    : '<i class="bi bi-eye"></i>';
+}
+
+async function testSnow(btn) {
+  const result = document.getElementById('snowTestResult');
+  btn.disabled = true;
+  result.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Testing…</span>';
+  try {
+    const resp = await fetch('/admin/settings/test-snow', {
+      method:'POST', headers:{ 'X-CSRFToken':'{{ csrf_token() }}' }
+    });
+    const data = await resp.json();
+    result.innerHTML = data.success
+      ? `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>${data.message}</span>`
+      : `<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>${data.message}</span>`;
+  } catch(e) {
+    result.innerHTML = '<span class="text-danger">Request failed.</span>';
+  }
+  btn.disabled = false;
+}
+</script>
+{% endblock %}
